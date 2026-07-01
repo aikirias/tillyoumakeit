@@ -20,6 +20,7 @@ from tymi.domain.artifacts import (
     Profile,
     TextStats,
 )
+from tymi.profiling.correlations import detect_correlations
 
 _QUANTILES = (0.05, 0.25, 0.5, 0.75, 0.95)
 
@@ -49,7 +50,15 @@ def profile_dataset(
         )
         for col in dataset.schema.columns
     )
-    return Profile(schema=dataset.schema, row_count=int(len(frame)), columns=columns)
+    correlations = detect_correlations(
+        frame, columns, max_categorical_cardinality=categorical_threshold
+    )
+    return Profile(
+        schema=dataset.schema,
+        row_count=int(len(frame)),
+        columns=columns,
+        correlations=correlations,
+    )
 
 
 def _profile_column(

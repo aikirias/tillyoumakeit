@@ -129,6 +129,28 @@ class ColumnProfile:
     text: TextStats | None = None
 
 
+@dataclass(frozen=True)
+class CorrelationMatrix:
+    """A symmetric pairwise-association matrix over a set of columns.
+
+    ``matrix[i][j]`` is the coefficient between ``columns[i]`` and ``columns[j]``;
+    an undefined coefficient (constant column, zero overlap) is ``None`` so it
+    serializes to JSON ``null`` rather than a bare ``NaN``.
+    """
+
+    method: str
+    columns: tuple[str, ...]
+    matrix: tuple[tuple[float | None, ...], ...]
+
+
+@dataclass(frozen=True)
+class Correlations:
+    """Cross-column correlations detected during profiling (AD-6: coefficients only)."""
+
+    numeric: CorrelationMatrix | None = None
+    categorical: CorrelationMatrix | None = None
+
+
 @dataclass
 class Profile:
     """Statistical signature of a source table.
@@ -140,6 +162,7 @@ class Profile:
     schema: Schema = field(default_factory=Schema)
     row_count: int = 0
     columns: tuple[ColumnProfile, ...] = ()
+    correlations: Correlations | None = None
 
 
 @dataclass
