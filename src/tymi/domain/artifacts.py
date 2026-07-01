@@ -69,6 +69,11 @@ def schema_to_json(schema: Schema) -> str:
     return json.dumps(asdict(schema), indent=2, default=str)
 
 
+def profile_to_json(profile: Profile) -> str:
+    """Serialize a Profile to deterministic JSON."""
+    return json.dumps(asdict(profile), indent=2, default=str)
+
+
 @dataclass
 class Dataset:
     """A DataFrame paired with its canonical Schema (AD-10)."""
@@ -77,15 +82,64 @@ class Dataset:
     schema: Schema
 
 
+@dataclass(frozen=True)
+class NumericStats:
+    min: float
+    max: float
+    mean: float
+    std: float
+    quantiles: dict[str, float]
+    histogram_bins: tuple[float, ...]
+    histogram_counts: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class CategoryFrequency:
+    value: str
+    count: int
+
+
+@dataclass(frozen=True)
+class DatetimeStats:
+    min: str | None
+    max: str | None
+    day_of_week_frequency: dict[str, int]
+    month_frequency: dict[str, int]
+
+
+@dataclass(frozen=True)
+class TextStats:
+    min_length: int
+    max_length: int
+    mean_length: float
+
+
+@dataclass(frozen=True)
+class ColumnProfile:
+    """Per-column aggregates. Exactly one of the ``*_stats`` fields is set."""
+
+    name: str
+    logical_type: LogicalType
+    count: int
+    null_count: int
+    distinct_count: int
+    numeric: NumericStats | None = None
+    categories: tuple[CategoryFrequency, ...] | None = None
+    datetime: DatetimeStats | None = None
+    text: TextStats | None = None
+
+
 @dataclass
 class Profile:
-    """Statistical signature of one or more source tables (skeleton).
+    """Statistical signature of a source table.
 
-    AD-6: stores only aggregates + schema + PII tags, never raw values.
+    AD-6: stores only aggregates + schema + PII tags, never raw row values.
     """
 
     schema_version: str = "1.0.0"
     schema: Schema = field(default_factory=Schema)
+    row_count: int = 0
+    columns: tuple[ColumnProfile, ...] = ()
 
 
 @dataclass

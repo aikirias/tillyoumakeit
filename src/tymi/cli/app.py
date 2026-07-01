@@ -14,7 +14,8 @@ from tymi.config import load_config
 from tymi.core.errors import ConfigError, EngineConnectionError, TableNotFoundError
 from tymi.core.plugins import load_engines
 from tymi.core.rng import make_rng
-from tymi.domain.artifacts import schema_to_json
+from tymi.domain.artifacts import profile_to_json, schema_to_json
+from tymi.profiling.profiler import profile_dataset
 
 app = typer.Typer(
     name="tymi",
@@ -26,7 +27,6 @@ app = typer.Typer(
 _NOT_IMPLEMENTED_EXIT = 2
 
 _STUB_COMMANDS = {
-    "profile": "Build a statistical Profile of a table.",
     "generate": "Generate faithful synthetic data from a Profile.",
     "chaos": "Generate chaotic data from a Profile.",
     "report": "Produce fidelity / quality & privacy reports.",
@@ -134,6 +134,27 @@ def sample(
         typer.echo(f"Connection failed: {exc}")
         raise typer.Exit(code=1) from None
     typer.echo(dataset.frame.to_csv(index=False))
+
+
+@app.command(name="profile")
+def profile(
+    table: str = typer.Argument(..., help="Table name to profile."),
+    engine: str = _ENGINE_OPTION,
+    config: Path = _CONFIG_OPTION,
+    rows: int = typer.Option(1000, "--rows", "-n", min=1, help="Rows to sample for the profile."),
+    seed: int = typer.Option(0, "--seed", "-s", help="Seed for the sample."),
+) -> None:
+    """Sample a table, build its statistical Profile, and print it as JSON."""
+    adapter = _load_adapter(engine, config)
+    try:
+        dataset = adapter.sample(table, rows=rows, rng=make_rng(seed))
+    except TableNotFoundError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from None
+    except EngineConnectionError as exc:
+        typer.echo(f"Connection failed: {exc}")
+        raise typer.Exit(code=1) from None
+    typer.echo(profile_to_json(profile_dataset(dataset)))
 
 
 if __name__ == "__main__":  # pragma: no cover

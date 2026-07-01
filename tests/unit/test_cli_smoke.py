@@ -29,6 +29,6 @@ def test_help_exits_zero_and_lists_commands() -> None:
 
 
 def test_stub_command_exits_nonzero() -> None:
-    result = runner.invoke(app, ["profile"])
+    result = runner.invoke(app, ["generate"])
     assert result.exit_code == 2
     assert "not implemented" in result.output
