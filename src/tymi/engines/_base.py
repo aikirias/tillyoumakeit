@@ -16,7 +16,7 @@ import numpy as np
 from sqlalchemy import URL, create_engine, text
 
 from tymi.config.models import ConnectionConfig
-from tymi.core.errors import EngineConnectionError
+from tymi.core.errors import EngineConnectionError, TableNotFoundError
 from tymi.domain.artifacts import Dataset, Schema
 
 
@@ -96,7 +96,24 @@ class SqlAlchemyEngineAdapter:
     # -- read/write (later stories) ------------------------------------------
 
     def introspect(self, table: str) -> Schema:
-        raise NotImplementedError("Schema introspection is delivered in Story 1.4.")
+        """Reflect a table's schema (columns, types, PK, FK, unique, indexes)."""
+        from tymi.engines._introspect import reflect_schema
+
+        url = self.build_url()
+        password = url.password or ""
+        try:
+            engine = create_engine(url)
+            try:
+                return reflect_schema(engine, table)
+            finally:
+                engine.dispose()
+        except TableNotFoundError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - connection boundary must never leak the secret
+            detail = _scrub(str(exc), password)
+            raise EngineConnectionError(
+                f"Cannot introspect {self.DIALECT} at {self._conn.host}:{self._port()}: {detail}"
+            ) from None
 
     def sample(self, table: str, *, rows: int, rng: np.random.Generator) -> Dataset:
         raise NotImplementedError("Sampling is delivered in Story 1.5.")

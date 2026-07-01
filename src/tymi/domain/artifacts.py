@@ -10,7 +10,8 @@ flesh out their fields.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import json
+from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 
 import pandas as pd
@@ -32,16 +33,40 @@ class Column:
     name: str
     logical_type: LogicalType
     nullable: bool = True
+    primary_key: bool = False
+
+
+@dataclass(frozen=True)
+class ForeignKey:
+    columns: tuple[str, ...]
+    referred_table: str
+    referred_columns: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Index:
+    name: str | None
+    columns: tuple[str, ...]
+    unique: bool = False
 
 
 @dataclass(frozen=True)
 class Schema:
-    """Ordered, engine-agnostic description of a table's columns."""
+    """Ordered, engine-agnostic description of a table's structure."""
 
     columns: tuple[Column, ...] = ()
+    primary_key: tuple[str, ...] = ()
+    foreign_keys: tuple[ForeignKey, ...] = ()
+    unique_constraints: tuple[tuple[str, ...], ...] = ()
+    indexes: tuple[Index, ...] = ()
 
     def names(self) -> list[str]:
         return [c.name for c in self.columns]
+
+
+def schema_to_json(schema: Schema) -> str:
+    """Serialize a Schema to deterministic JSON (StrEnum values render as strings)."""
+    return json.dumps(asdict(schema), indent=2, default=str)
 
 
 @dataclass

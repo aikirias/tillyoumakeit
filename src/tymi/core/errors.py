@@ -24,3 +24,7 @@ class EngineConnectionError(EngineError):
 
     Messages must never contain secret values (NFR-6).
     """
+
+
+class TableNotFoundError(EngineError):
+    """The requested table does not exist in the source."""

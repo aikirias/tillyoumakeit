@@ -1,8 +1,7 @@
 """TYMI command-line interface (driving adapter).
 
-Most subcommands are still stubs (they explain they are not implemented and exit
-with code 2). ``test-connection`` is real. ``tymi --help`` lists them all and
-exits 0.
+Some subcommands are still stubs (they exit with code 2). ``test-connection``
+and ``schema`` are real. ``tymi --help`` lists them all and exits 0.
 """
 
 from __future__ import annotations
@@ -12,8 +11,9 @@ from pathlib import Path
 import typer
 
 from tymi.config import load_config
-from tymi.core.errors import ConfigError, EngineConnectionError
+from tymi.core.errors import ConfigError, EngineConnectionError, TableNotFoundError
 from tymi.core.plugins import load_engines
+from tymi.domain.artifacts import schema_to_json
 
 app = typer.Typer(
     name="tymi",
@@ -25,7 +25,6 @@ app = typer.Typer(
 _NOT_IMPLEMENTED_EXIT = 2
 
 _STUB_COMMANDS = {
-    "schema": "Introspect and print a table's schema.",
     "sample": "Sample rows from a source table.",
     "profile": "Build a statistical Profile of a table.",
     "generate": "Generate faithful synthetic data from a Profile.",
@@ -34,6 +33,11 @@ _STUB_COMMANDS = {
     "export": "Export generated data to files or an engine.",
     "ui": "Launch the Streamlit web UI.",
 }
+
+_ENGINE_OPTION = typer.Option(..., "--engine", "-e", help="Engine name, e.g. 'postgres'.")
+_CONFIG_OPTION = typer.Option(
+    ..., "--config", "-c", exists=True, dir_okay=False, help="Path to the YAML config."
+)
 
 
 def _make_stub(command: str, summary: str):
@@ -49,14 +53,8 @@ for _name, _summary in _STUB_COMMANDS.items():
     app.command(name=_name)(_make_stub(_name, _summary))
 
 
-@app.command(name="test-connection")
-def test_connection(
-    engine: str = typer.Option(..., "--engine", "-e", help="Engine name, e.g. 'mssql'."),
-    config: Path = typer.Option(
-        ..., "--config", "-c", exists=True, dir_okay=False, help="Path to the YAML config."
-    ),
-) -> None:
-    """Test a connection to a source/destination engine."""
+def _load_adapter(engine: str, config: Path):
+    """Load config and build the requested engine adapter, or exit non-zero."""
     try:
         cfg = load_config(config)
     except ConfigError as exc:
@@ -81,13 +79,38 @@ def test_connection(
         typer.echo("No 'source.connection' section found in the config file.")
         raise typer.Exit(code=2)
 
-    adapter = adapter_cls(connection)
+    return adapter_cls(connection)
+
+
+@app.command(name="test-connection")
+def test_connection(engine: str = _ENGINE_OPTION, config: Path = _CONFIG_OPTION) -> None:
+    """Test a connection to a source/destination engine."""
+    adapter = _load_adapter(engine, config)
     try:
         adapter.test_connection()
     except EngineConnectionError as exc:
         typer.echo(f"Connection failed: {exc}")
         raise typer.Exit(code=1) from None
     typer.echo(f"Connection to {engine!r} OK.")
+
+
+@app.command(name="schema")
+def schema(
+    table: str = typer.Argument(..., help="Table name to introspect."),
+    engine: str = _ENGINE_OPTION,
+    config: Path = _CONFIG_OPTION,
+) -> None:
+    """Introspect and print a table's schema as JSON."""
+    adapter = _load_adapter(engine, config)
+    try:
+        result = adapter.introspect(table)
+    except TableNotFoundError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from None
+    except EngineConnectionError as exc:
+        typer.echo(f"Connection failed: {exc}")
+        raise typer.Exit(code=1) from None
+    typer.echo(schema_to_json(result))
 
 
 if __name__ == "__main__":  # pragma: no cover
