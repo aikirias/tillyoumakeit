@@ -8,7 +8,8 @@ import pytest
 
 from tymi.config.models import ConnectionConfig
 from tymi.core.errors import EngineConnectionError
-from tymi.engines.mssql import MssqlAdapter, _scrub
+from tymi.engines._base import _scrub
+from tymi.engines.mssql import MssqlAdapter
 
 PASSWORD = "s3cr3t-P@ss!"
 
@@ -95,7 +96,7 @@ def test_connection_error_is_wrapped_and_scrubbed(monkeypatch: pytest.MonkeyPatc
     def _boom(url: object):
         raise RuntimeError(f"driver failed pwd={PASSWORD} enc={encoded}")
 
-    monkeypatch.setattr("tymi.engines.mssql.create_engine", _boom)
+    monkeypatch.setattr("tymi.engines._base.create_engine", _boom)
     with pytest.raises(EngineConnectionError) as excinfo:
         _adapter().test_connection()
     message = str(excinfo.value)

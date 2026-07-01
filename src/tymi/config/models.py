@@ -27,9 +27,10 @@ class ConnectionConfig(BaseModel):
     model_config = _FORBID_EXTRA
 
     host: str
-    port: int = Field(default=1433, gt=0, le=65535)
+    port: int | None = Field(default=None, gt=0, le=65535)
     database: str | None = None
-    driver: str = "ODBC Driver 18 for SQL Server"
+    # MSSQL/ODBC-only options; ignored by other engines.
+    driver: str | None = None
     encrypt: bool = True
     trust_server_certificate: bool = True
     user_env: str = "TYMI_DB_USER"

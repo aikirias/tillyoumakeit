@@ -11,7 +11,7 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 | --- | --- | --- |
 | 1.1 | Project scaffold + hexagonal skeleton (uv package, core/ports/domain, config, RNG, plugin registry, CLI shell, CI, import-linter) | ✅ |
 | 1.2 | `EngineAdapter` port + **MSSQL** connectivity (`tymi test-connection`), env-var credentials, entry-point registration, testcontainers integration test | ✅ |
-| 1.3 | PostgreSQL, MySQL, StarRocks adapters via plugins | ⬜ |
+| 1.3 | **PostgreSQL, MySQL, StarRocks** adapters via plugins (shared `SqlAlchemyEngineAdapter` base); PG + MySQL integration tests pass against real containers | ✅ |
 | 1.4 | Schema introspection | ⬜ |
 | 1.5 | Streaming, seed-reproducible sampling | ⬜ |
 | 1.6 | Per-column statistical profiler | ⬜ |
@@ -40,8 +40,10 @@ Wizard exposing the full connect → profile → configure → preview → expor
 ## What works today
 
 - `tymi --help` and the CLI command surface (most subcommands are stubs).
-- `tymi test-connection --engine mssql --config <file>` — real connectivity check
-  against MSSQL, with credentials read from environment variables.
+- `tymi test-connection --engine <mssql|postgres|mysql|starrocks> --config <file>` —
+  real connectivity check for all four engines, with credentials read from
+  environment variables. (PostgreSQL and MySQL are verified end-to-end against
+  real containers; MSSQL in CI with the ODBC driver; StarRocks opt-in.)
 - Config loading/validation (Pydantic v2 + YAML, `schema_version` gating).
 - The plugin registry (`tymi.engines`, `tymi.mutators`).
 
