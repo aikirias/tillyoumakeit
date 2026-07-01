@@ -21,6 +21,10 @@ htmlcov/
 
 # Claude Code local settings (machine-specific)
 .claude/settings.local.json
+.claude/settings.json
+
+# repowise index & caches (regenerate with `repowise init`)
+.repowise/
 
 # OS / editor
 .DS_Store

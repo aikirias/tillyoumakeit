@@ -9,6 +9,12 @@
 
 You drive it from a **CLI**, a **Python library**, or a **web UI** — all three do exactly the same thing because they read the same declarative config file.
 
+## Documentation
+
+Living docs live in [`docs/`](docs/): [how it works](docs/how-it-works.md),
+[development](docs/development.md), and [status](docs/status.md). They are kept
+current as the project progresses.
+
 ## Why TYMI
 
 - **Privacy by construction.** Faithful output is checked against the real values with an *exact membership check* — absence of leakage is proven, not estimated.
