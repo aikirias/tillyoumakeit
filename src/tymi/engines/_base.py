@@ -33,6 +33,10 @@ class SqlAlchemyEngineAdapter:
     supports_sample = True
     supports_write = True
 
+    #: Whether seeded sampling is deterministic on this engine. PostgreSQL and
+    #: MySQL are; MSSQL (NEWID) and StarRocks (distributed RAND) are not.
+    reproducible_sample = True
+
     def __init__(self, connection: ConnectionConfig) -> None:
         self._conn = connection
 
@@ -95,16 +99,25 @@ class SqlAlchemyEngineAdapter:
 
     # -- read/write (later stories) ------------------------------------------
 
+    @staticmethod
+    def _split_table(table: str) -> tuple[str | None, str]:
+        """Split ``schema.table`` into ``(schema, table)`` (``schema`` may be None)."""
+        if "." in table:
+            schema, name = table.rsplit(".", 1)
+            return schema, name
+        return None, table
+
     def introspect(self, table: str) -> Schema:
         """Reflect a table's schema (columns, types, PK, FK, unique, indexes)."""
         from tymi.engines._introspect import reflect_schema
 
+        schema_name, table_name = self._split_table(table)
         url = self.build_url()
         password = url.password or ""
         try:
             engine = create_engine(url)
             try:
-                return reflect_schema(engine, table)
+                return reflect_schema(engine, table_name, schema=schema_name)
             finally:
                 engine.dispose()
         except TableNotFoundError:
@@ -118,9 +131,10 @@ class SqlAlchemyEngineAdapter:
     def _sample_sql(self, table_quoted: str, rows: int, seed: int) -> tuple[list[str], str]:
         """Return ``(setup_statements, query)`` for a random sample of ``rows``.
 
-        Default is a non-random ``LIMIT``; engines override for seeded randomness.
+        Every engine must implement this — there is no safe generic default
+        (a plain ``LIMIT`` would be non-random and silently ignore the seed).
         """
-        return [], f"SELECT * FROM {table_quoted} LIMIT {rows}"
+        raise NotImplementedError(f"{type(self).__name__} must implement _sample_sql.")
 
     def sample(self, table: str, *, rows: int, rng: np.random.Generator) -> Dataset:
         """Return up to ``rows`` randomly-sampled rows as a canonical Dataset."""
@@ -137,7 +151,11 @@ class SqlAlchemyEngineAdapter:
         try:
             engine = create_engine(url)
             try:
-                table_quoted = engine.dialect.identifier_preparer.quote(table)
+                schema_name, table_name = self._split_table(table)
+                preparer = engine.dialect.identifier_preparer
+                table_quoted = preparer.quote(table_name)
+                if schema_name:
+                    table_quoted = f"{preparer.quote_schema(schema_name)}.{table_quoted}"
                 setup, query = self._sample_sql(table_quoted, rows, seed)
                 with engine.connect() as conn:
                     for statement in setup:

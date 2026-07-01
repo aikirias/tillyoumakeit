@@ -52,3 +52,19 @@ def test_sample_rejects_non_int_rows(bad_rows: object) -> None:
     # rows is interpolated into SQL; a non-int must be rejected before any DB work.
     with pytest.raises((ValueError, TypeError)):
         _adapter(MySqlAdapter).sample("t", rows=bad_rows, rng=make_rng(0))
+
+
+def test_split_table_handles_schema_qualified() -> None:
+    assert MySqlAdapter._split_table("t") == (None, "t")
+    assert MySqlAdapter._split_table("s.t") == ("s", "t")
+
+
+def test_reproducible_sample_flags() -> None:
+    from tymi.engines.mssql import MssqlAdapter
+    from tymi.engines.postgres import PostgresAdapter
+    from tymi.engines.starrocks import StarRocksAdapter
+
+    assert PostgresAdapter.reproducible_sample is True
+    assert MySqlAdapter.reproducible_sample is True
+    assert MssqlAdapter.reproducible_sample is False
+    assert StarRocksAdapter.reproducible_sample is False

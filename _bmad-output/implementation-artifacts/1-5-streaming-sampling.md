@@ -17,7 +17,7 @@ so that I can feed profiling on large tables safely and reproducibly.
 1. **`tymi sample <table> --rows N`** returns up to N rows for any of the four engines (`--engine`, `--config`, `--seed`), printed as CSV. Exit 0 on success.
 2. **Bounded client memory** — only the sampled rows are ever held in the tool (we `LIMIT`/`TOP` to N server-side), so a ≥10M-row table does not exhaust memory (NFR-2).
 3. **Random sample** — rows are drawn randomly (a dialect-appropriate random ordering), not just the first N physical rows.
-4. **Seed-reproducible** where the dialect supports it — same seed ⇒ same rows for PostgreSQL (`setseed` + `random()`), MySQL and StarRocks (`RAND(seed)`). MSSQL uses `NEWID()` and is **not** reproducible in this version (documented limitation; deferred).
+4. **Seed-reproducible** where the dialect supports it — same seed ⇒ same rows for PostgreSQL (`setseed` + `random()`) and MySQL (`RAND(seed)`). **MSSQL** (`NEWID()`) and **StarRocks** (distributed `RAND` across BEs) are random but **not** seed-reproducible; this is surfaced via the `reproducible_sample` class flag and a CLI stderr notice (documented limitation). *(Corrected in review: StarRocks was initially assumed reproducible — it is not.)*
 5. **Returns a canonical `Dataset`** — the sampled `pandas.DataFrame` paired with the table's `Schema` (from introspection) (AD-10).
 6. **Typed errors, no secret leak** — missing table → `TableNotFoundError`; connection failures scrubbed (reuse base handling).
 7. **Verified end-to-end** — integration tests against real PostgreSQL and MySQL sample a seeded table and assert row count, schema alignment, and seed reproducibility.
@@ -85,3 +85,4 @@ Claude Opus 4.8 (claude-opus-4-8) — bmad-dev-story
 | --- | --- |
 | 2026-07-01 | Implemented Story 1.5 — seed-reproducible streaming sampling in the base (per-dialect random SQL), real `tymi sample` CLI. 58 unit tests + real PG/MySQL sampling+reproducibility integration tests pass. Status → review. |
 | 2026-07-01 | Adversarial review: fixed 1 HIGH (type-guard `rows` against SQL injection via the library API) + 1 MEDIUM (PG reproducibility robustness: disable parallel gather so `setseed` holds) + 1 MEDIUM (added non-int `rows` injection tests). Column-order / RAND-tie / empty-table LOWs dismissed. 62 unit tests pass. Status → done. |
+| 2026-07-01 | Full 3-layer review (1.3–1.5): corrected the StarRocks reproducibility claim (not reproducible — distributed RAND), added `reproducible_sample` flag + CLI notice for MSSQL/StarRocks, made base `_sample_sql` mandatory, and strengthened the reproducibility test (different seed → different rows). 66 unit tests pass. |

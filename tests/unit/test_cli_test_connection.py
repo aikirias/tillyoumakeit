@@ -39,3 +39,17 @@ def test_engine_config_mismatch_exits_2(tmp_path: Path) -> None:
     result = runner.invoke(app, ["test-connection", "--engine", "mssql", "--config", cfg])
     assert result.exit_code == 2
     assert "does not match" in result.output
+
+
+def test_schema_command_unknown_engine_exits_2(tmp_path: Path) -> None:
+    cfg = _config(tmp_path, "schema_version: '1.0.0'\nsource:\n  connection:\n    host: h\n")
+    result = runner.invoke(app, ["schema", "t", "--engine", "nope", "--config", cfg])
+    assert result.exit_code == 2
+    assert "Unknown engine" in result.output
+
+
+def test_sample_command_missing_connection_exits_2(tmp_path: Path) -> None:
+    cfg = _config(tmp_path, "schema_version: '1.0.0'\n")
+    result = runner.invoke(app, ["sample", "t", "--engine", "mysql", "--config", cfg])
+    assert result.exit_code == 2
+    assert "connection" in result.output.lower()

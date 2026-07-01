@@ -37,6 +37,9 @@ def _assert_sampling(adapter: object) -> None:
     # seed-reproducible: same seed -> same rows in the same order
     ds2 = adapter.sample("nums", rows=10, rng=make_rng(42))
     assert list(ds1.frame["id"]) == list(ds2.frame["id"])
+    # the seed actually drives selection: a different seed -> different rows
+    ds3 = adapter.sample("nums", rows=10, rng=make_rng(7))
+    assert list(ds1.frame["id"]) != list(ds3.frame["id"])
 
 
 def test_sample_postgres(monkeypatch: pytest.MonkeyPatch) -> None:

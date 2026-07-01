@@ -123,6 +123,8 @@ def sample(
 ) -> None:
     """Sample rows from a source table and print them as CSV."""
     adapter = _load_adapter(engine, config)
+    if not adapter.reproducible_sample:
+        typer.echo(f"Note: sampling for {engine!r} is not seed-reproducible.", err=True)
     try:
         dataset = adapter.sample(table, rows=rows, rng=make_rng(seed))
     except TableNotFoundError as exc:

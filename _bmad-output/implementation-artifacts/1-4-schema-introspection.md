@@ -91,3 +91,4 @@ Claude Opus 4.8 (claude-opus-4-8) — bmad-dev-story
 | --- | --- |
 | 2026-07-01 | Implemented Story 1.4 — schema introspection via SQLAlchemy reflection in the base (all four engines), enriched canonical Schema (PK/FK/indexes), `schema_to_json`, real `tymi schema` CLI. 53 unit tests + real PG/MySQL introspection integration tests pass. Status → review. |
 | 2026-07-01 | Adversarial review: no CRITICAL/HIGH defects. Closed the one MEDIUM (test-coverage gap): integration tests now assert unique constraints, indexes, and the missing-table `TableNotFoundError` path. Status → done. |
+| 2026-07-01 | Full 3-layer review (1.3–1.5): fixed a HIGH — schema-qualified table names (`schema.table`) were broken; `reflect_schema` now accepts a schema and uses `has_table` (also fixes empty-columns-vs-not-found). Verified end-to-end on PostgreSQL. Added CLI unit tests for `schema`/`sample`. |

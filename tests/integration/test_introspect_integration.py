@@ -82,6 +82,17 @@ def test_introspect_postgres(monkeypatch: pytest.MonkeyPatch) -> None:
         )
         _run_ddl(adapter.build_url(), _DDL)
         _assert_child_schema(adapter)
+        # schema-qualified table name (non-default schema)
+        _run_ddl(
+            adapter.build_url(),
+            [
+                "CREATE SCHEMA extra",
+                "CREATE TABLE extra.thing (id INTEGER PRIMARY KEY, label VARCHAR(20))",
+            ],
+        )
+        qualified = adapter.introspect("extra.thing")
+        assert qualified.names() == ["id", "label"]
+        assert qualified.primary_key == ("id",)
 
 
 def test_introspect_mysql(monkeypatch: pytest.MonkeyPatch) -> None:

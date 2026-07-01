@@ -17,6 +17,7 @@ class MssqlAdapter(SqlAlchemyEngineAdapter):
 
     DIALECT = "mssql+pyodbc"
     DEFAULT_PORT = 1433
+    reproducible_sample = False  # NEWID() is random but not seed-reproducible
 
     def _sample_sql(self, table_quoted: str, rows: int, seed: int) -> tuple[list[str], str]:
         # MSSQL has no simple per-row seeded RNG; NEWID() is random but not
