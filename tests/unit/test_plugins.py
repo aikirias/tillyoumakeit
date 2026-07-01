@@ -1,12 +1,15 @@
-"""AC-6: the plugin registry loads entry-point groups and is empty by default."""
+"""AC-6 (Story 1.1): the plugin registry loads entry-point groups cleanly.
+
+The ``tymi.engines`` group now has the MSSQL adapter (asserted in
+``test_engine_registration.py``); ``tymi.mutators`` is still empty.
+"""
 
 from __future__ import annotations
 
-from tymi.core.plugins import load_engines, load_mutators, load_plugins
+from tymi.core.plugins import load_mutators, load_plugins
 
 
-def test_registry_empty_when_no_plugins() -> None:
-    assert load_engines() == {}
+def test_mutators_registry_empty() -> None:
     assert load_mutators() == {}
 
 

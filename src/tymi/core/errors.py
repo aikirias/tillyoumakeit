@@ -13,3 +13,14 @@ class ConfigError(TymiError):
 
 class ConfigVersionError(ConfigError):
     """The config file's ``schema_version`` major is not supported."""
+
+
+class EngineError(TymiError):
+    """A source/destination engine adapter failed."""
+
+
+class EngineConnectionError(EngineError):
+    """Could not connect to an engine (bad credentials, host unreachable, …).
+
+    Messages must never contain secret values (NFR-6).
+    """

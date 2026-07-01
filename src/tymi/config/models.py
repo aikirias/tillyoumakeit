@@ -15,6 +15,27 @@ SUPPORTED_SCHEMA_MAJOR = 1
 _FORBID_EXTRA = ConfigDict(extra="forbid")
 
 
+class ConnectionConfig(BaseModel):
+    """Non-secret connection settings for an engine.
+
+    Credentials are never stored here (NFR-6): only the *names* of the
+    environment variables that hold the username and password. Defaults target
+    MSSQL / ODBC Driver 18 (encryption on, trust self-signed certs so local test
+    containers work).
+    """
+
+    model_config = _FORBID_EXTRA
+
+    host: str
+    port: int = Field(default=1433, gt=0, le=65535)
+    database: str | None = None
+    driver: str = "ODBC Driver 18 for SQL Server"
+    encrypt: bool = True
+    trust_server_certificate: bool = True
+    user_env: str = "TYMI_DB_USER"
+    password_env: str = "TYMI_DB_PASSWORD"
+
+
 class SourceConfig(BaseModel):
     """Where to read from (placeholder; filled in later stories)."""
 
@@ -22,6 +43,7 @@ class SourceConfig(BaseModel):
 
     engine: str | None = None
     table: str | None = None
+    connection: ConnectionConfig | None = None
 
 
 class GenerationConfig(BaseModel):
