@@ -115,8 +115,44 @@ class SqlAlchemyEngineAdapter:
                 f"Cannot introspect {self.DIALECT} at {self._conn.host}:{self._port()}: {detail}"
             ) from None
 
+    def _sample_sql(self, table_quoted: str, rows: int, seed: int) -> tuple[list[str], str]:
+        """Return ``(setup_statements, query)`` for a random sample of ``rows``.
+
+        Default is a non-random ``LIMIT``; engines override for seeded randomness.
+        """
+        return [], f"SELECT * FROM {table_quoted} LIMIT {rows}"
+
     def sample(self, table: str, *, rows: int, rng: np.random.Generator) -> Dataset:
-        raise NotImplementedError("Sampling is delivered in Story 1.5.")
+        """Return up to ``rows`` randomly-sampled rows as a canonical Dataset."""
+        import pandas as pd
+
+        # rows is interpolated into SQL, so it must be a genuine positive int
+        # (the public library API can be called with anything, unlike the CLI).
+        if isinstance(rows, bool) or not isinstance(rows, int) or rows <= 0:
+            raise ValueError("rows must be a positive integer.")
+        schema = self.introspect(table)  # validates existence + gives the Schema
+        seed = int(rng.integers(0, 2**31 - 1))
+        url = self.build_url()
+        password = url.password or ""
+        try:
+            engine = create_engine(url)
+            try:
+                table_quoted = engine.dialect.identifier_preparer.quote(table)
+                setup, query = self._sample_sql(table_quoted, rows, seed)
+                with engine.connect() as conn:
+                    for statement in setup:
+                        conn.execute(text(statement))
+                    frame = pd.read_sql(text(query), conn)
+            finally:
+                engine.dispose()
+        except TableNotFoundError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - connection boundary must never leak the secret
+            detail = _scrub(str(exc), password)
+            raise EngineConnectionError(
+                f"Cannot sample {self.DIALECT} at {self._conn.host}:{self._port()}: {detail}"
+            ) from None
+        return Dataset(frame=frame, schema=schema)
 
     def load(self, dataset: Dataset, *, table: str) -> None:
         raise NotImplementedError("Loading is delivered in Epic 2.")

@@ -12,3 +12,6 @@ from tymi.engines._base import SqlAlchemyEngineAdapter
 class StarRocksAdapter(SqlAlchemyEngineAdapter):
     DIALECT = "mysql+pymysql"
     DEFAULT_PORT = 9030
+
+    def _sample_sql(self, table_quoted: str, rows: int, seed: int) -> tuple[list[str], str]:
+        return [], f"SELECT * FROM {table_quoted} ORDER BY RAND({seed}) LIMIT {rows}"

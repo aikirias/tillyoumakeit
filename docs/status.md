@@ -13,7 +13,7 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 | 1.2 | `EngineAdapter` port + **MSSQL** connectivity (`tymi test-connection`), env-var credentials, entry-point registration, testcontainers integration test | ✅ |
 | 1.3 | **PostgreSQL, MySQL, StarRocks** adapters via plugins (shared `SqlAlchemyEngineAdapter` base); PG + MySQL integration tests pass against real containers | ✅ |
 | 1.4 | **Schema introspection** (`tymi schema`) — columns/types/PK/FK/indexes via SQLAlchemy reflection (all engines); verified on real PG + MySQL | ✅ |
-| 1.5 | Streaming, seed-reproducible sampling | ⬜ |
+| 1.5 | **Streaming, seed-reproducible sampling** (`tymi sample`) — per-dialect random SQL; PG/MySQL reproducibility verified on real containers (MSSQL random, non-reproducible) | ✅ |
 | 1.6 | Per-column statistical profiler | ⬜ |
 | 1.7 | Correlation detection | ⬜ |
 | 1.8 | Persistent, versioned Profile | ⬜ |

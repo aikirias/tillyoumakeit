@@ -18,6 +18,11 @@ class MssqlAdapter(SqlAlchemyEngineAdapter):
     DIALECT = "mssql+pyodbc"
     DEFAULT_PORT = 1433
 
+    def _sample_sql(self, table_quoted: str, rows: int, seed: int) -> tuple[list[str], str]:
+        # MSSQL has no simple per-row seeded RNG; NEWID() is random but not
+        # reproducible (documented limitation). TOP replaces LIMIT.
+        return [], f"SELECT TOP ({rows}) * FROM {table_quoted} ORDER BY NEWID()"
+
     def _query(self) -> dict[str, str]:
         # Driver 18 encrypts by default; trust self-signed certs for test
         # containers (configurable). See ConnectionConfig.
