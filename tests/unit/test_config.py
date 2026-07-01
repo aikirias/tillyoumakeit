@@ -62,3 +62,10 @@ def test_out_of_range_values_are_rejected(tmp_path: Path) -> None:
 def test_malformed_root_is_config_error(tmp_path: Path) -> None:
     with pytest.raises(ConfigError):
         load_config(_write(tmp_path, "- just\n- a\n- list\n"))
+
+
+def test_non_utf8_file_is_config_error(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_bytes(b"\xff\xfe\x00binary")
+    with pytest.raises(ConfigError):
+        load_config(path)

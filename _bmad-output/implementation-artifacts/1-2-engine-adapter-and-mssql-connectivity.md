@@ -4,7 +4,7 @@ baseline_commit: d92da2e1566ecc7341e9e14a01293b0653d2381b
 
 # Story 1.2: EngineAdapter port and MSSQL connectivity
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -51,6 +51,22 @@ so that TYMI can reach my database (as source or destination) without me hardcod
   - [x] Register the `integration` marker in `pyproject.toml` (`[tool.pytest.ini_options] markers`), and make the default unit run exclude it (e.g. `addopts = "-m 'not integration'"`).
 - [x] **Task 8: CI** (AC: 7)
   - [x] Add an `integration` job to `.github/workflows/ci.yml`: install ODBC Driver 18 (see Dev Notes snippet), `uv sync`, then `uv run pytest -m integration`. Keep the existing unit job (`-m 'not integration'`, no Docker/driver) intact.
+
+### Review Findings
+
+*Code review of commit 6e5f5a5 (Blind Hunter + Acceptance Auditor; Edge Case Hunter layer was interrupted). All 7 ACs verified met; findings harden the secret-redaction error path.*
+
+- [x] [Review][Patch] `_scrub` bypassed by URL-encoded password — scrub raw + percent-encoded variants so a secret cannot leak via a SQLAlchemy/ODBC error message [src/tymi/engines/mssql.py] (blind, HIGH)
+- [x] [Review][Patch] `test_connection` exception handling too narrow — catch any Exception at the connection boundary and scrub, so no unexpected error type leaks the password [src/tymi/engines/mssql.py] (blind+auditor, MED)
+- [x] [Review][Patch] CLI ignores `--engine` vs `source.engine` mismatch — reject with exit 2 when they disagree [src/tymi/cli/app.py] (blind, MED)
+- [x] [Review][Patch] No test on the error-path redaction — add tests for `_scrub` (raw+encoded), `test_connection` wrapping/scrubbing, both-env-missing, and CLI mismatch/no-connection [tests] (blind+auditor, LOW)
+
+*Second pass (Edge Case Hunter rerun):*
+
+- [x] [Review][Patch] `load_config` leaks a raw traceback on an unreadable/non-UTF-8 `--config` file (`read_text` outside the try) — wrap file read, convert to `ConfigError` so the CLI exits 2 cleanly [src/tymi/config/loader.py] (edge, HIGH)
+- [x] [Review][Patch] Empty-string credential env var accepted — reject an env var that is set but empty with a clear `EngineConnectionError` [src/tymi/engines/mssql.py] (edge, LOW)
+- [x] [Review][Dismiss] `except Exception` in `test_connection` could mislabel a programmer error — accepted: the scrubbed original message is retained (bug not hidden) and the broad catch guarantees no secret leak at the credentials boundary
+- [x] [Review][Dismiss] Short/substring passwords over-scrub error text — cosmetic only, no security impact; scrubbing is kept (security first)
 
 ## Dev Notes
 
@@ -146,3 +162,4 @@ Claude Opus 4.8 (claude-opus-4-8) — bmad-dev-story
 | Date | Change |
 | --- | --- |
 | 2026-07-01 | Implemented Story 1.2 — MSSQL EngineAdapter (connectivity), ConnectionConfig with env-var credentials, engine errors, real `test-connection` CLI, entry-point registration, unit + testcontainers integration tests, CI integration job. 22 unit tests pass; ruff + import-linter green. Status → review. |
+| 2026-07-01 | Code review (3 adversarial layers, Edge Case Hunter rerun). Applied 6 patches: harden `_scrub` for URL-encoded secrets, broaden+scrub connection catch, reject `--engine`/`source.engine` mismatch, robust `load_config` file read, reject empty credential env vars, +error-path/CLI/config tests. 2 findings dismissed with rationale. 30 unit tests pass. Status → done. |

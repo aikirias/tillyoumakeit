@@ -29,7 +29,10 @@ def load_config(path: str | Path) -> Config:
     supported (or is malformed), and ``ConfigError`` on any other malformed
     YAML/schema (including unknown keys or out-of-range values).
     """
-    text = Path(path).read_text(encoding="utf-8")
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ConfigError(f"Could not read config file {path}: {exc}") from exc
     try:
         data = yaml.safe_load(text) or {}
     except yaml.YAMLError as exc:

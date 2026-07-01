@@ -63,6 +63,13 @@ def test_connection(
         typer.echo(f"Invalid config: {exc}")
         raise typer.Exit(code=2) from None
 
+    if cfg.source.engine is not None and cfg.source.engine != engine:
+        typer.echo(
+            f"--engine {engine!r} does not match source.engine "
+            f"{cfg.source.engine!r} in the config file."
+        )
+        raise typer.Exit(code=2)
+
     engines = load_engines()
     adapter_cls = engines.get(engine)
     if adapter_cls is None:

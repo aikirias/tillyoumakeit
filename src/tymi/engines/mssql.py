@@ -9,10 +9,10 @@ redaction are unit-testable without the ODBC driver installed (AD-2, AD-3).
 from __future__ import annotations
 
 import os
+import urllib.parse
 
 import numpy as np
 from sqlalchemy import URL, create_engine, text
-from sqlalchemy.exc import SQLAlchemyError
 
 from tymi.config.models import ConnectionConfig
 from tymi.core.errors import EngineConnectionError
@@ -39,18 +39,16 @@ class MssqlAdapter:
         Raises ``EngineConnectionError`` naming the missing variable (never its
         value) so the failure is actionable without leaking secrets.
         """
-        try:
-            user = os.environ[self._conn.user_env]
-        except KeyError:
+        user = os.environ.get(self._conn.user_env)
+        if not user:
             raise EngineConnectionError(
-                f"MSSQL username env var {self._conn.user_env!r} is not set."
-            ) from None
-        try:
-            password = os.environ[self._conn.password_env]
-        except KeyError:
+                f"MSSQL username env var {self._conn.user_env!r} is not set or empty."
+            )
+        password = os.environ.get(self._conn.password_env)
+        if not password:
             raise EngineConnectionError(
-                f"MSSQL password env var {self._conn.password_env!r} is not set."
-            ) from None
+                f"MSSQL password env var {self._conn.password_env!r} is not set or empty."
+            )
         return user, password
 
     def build_url(self) -> URL:
@@ -86,7 +84,7 @@ class MssqlAdapter:
                     conn.execute(text("SELECT 1"))
             finally:
                 engine.dispose()
-        except (SQLAlchemyError, ImportError, OSError) as exc:
+        except Exception as exc:  # noqa: BLE001 - connection boundary must never leak the secret
             detail = _scrub(str(exc), password)
             raise EngineConnectionError(
                 f"Cannot connect to MSSQL at {self._conn.host}:{self._conn.port}: {detail}"
@@ -105,5 +103,13 @@ class MssqlAdapter:
 
 
 def _scrub(message: str, secret: str) -> str:
-    """Remove a secret substring from a message (defence-in-depth for logs)."""
-    return message.replace(secret, "***") if secret else message
+    """Remove a secret from a message, including URL-encoded forms.
+
+    SQLAlchemy/ODBC error text may echo the password percent-encoded (e.g. in a
+    rendered DSN), so replacing only the raw value is not enough (NFR-6).
+    """
+    if not secret:
+        return message
+    for variant in {secret, urllib.parse.quote(secret, safe=""), urllib.parse.quote_plus(secret)}:
+        message = message.replace(variant, "***")
+    return message
