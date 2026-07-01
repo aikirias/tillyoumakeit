@@ -33,6 +33,32 @@ def test_unknown_major_is_rejected(tmp_path: Path) -> None:
         load_config(_write(tmp_path, "schema_version: '2.0.0'\n"))
 
 
+def test_non_string_version_gated_as_version_error(tmp_path: Path) -> None:
+    # YAML loads `2` as an int; it must still be a *version* error, not a
+    # generic schema error, and a supported major given as int must load.
+    with pytest.raises(ConfigVersionError):
+        load_config(_write(tmp_path, "schema_version: 2\n"))
+    cfg = load_config(_write(tmp_path, "schema_version: 1\n"))
+    assert cfg.schema_version == "1"
+
+
+def test_malformed_version_is_version_error(tmp_path: Path) -> None:
+    with pytest.raises(ConfigVersionError):
+        load_config(_write(tmp_path, "schema_version: abc\n"))
+
+
+def test_unknown_key_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError):
+        load_config(_write(tmp_path, "choas: {}\n"))
+
+
+def test_out_of_range_values_are_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError):
+        load_config(_write(tmp_path, "generation:\n  tolerance: 5.0\n"))
+    with pytest.raises(ConfigError):
+        load_config(_write(tmp_path, "chaos:\n  rate: -1.0\n"))
+
+
 def test_malformed_root_is_config_error(tmp_path: Path) -> None:
     with pytest.raises(ConfigError):
         load_config(_write(tmp_path, "- just\n- a\n- list\n"))

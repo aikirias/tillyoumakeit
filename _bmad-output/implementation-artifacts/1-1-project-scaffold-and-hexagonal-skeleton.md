@@ -4,7 +4,7 @@ baseline_commit: b5e5065f1b46d731c12927fbdd67665a51f0ff08
 
 # Story 1.1: Project scaffold and hexagonal skeleton
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -59,6 +59,18 @@ so that every later story has a consistent, import-safe, testable base to build 
   - [x] `tests/unit/test_rng.py`: `make_rng(42)` and `make_rng(42)` produce identical first draws; different seeds differ.
   - [x] `.github/workflows/ci.yml`: on push/PR — set up uv + Python 3.11–3.13 matrix, `uv sync`, `uv run ruff check`, `uv run lint-imports`, `uv run pytest`.
   - [x] Add `[tool.ruff]` config; add a `README`-level dev note in `pyproject` or `CONTRIBUTING` only if trivial (do not expand scope).
+
+### Review Findings
+
+*Code review of commit 83fdc8f (Blind Hunter + Edge Case Hunter + Acceptance Auditor). AC2/AD-1 layering audited and confirmed correct.*
+
+- [x] [Review][Patch] Config silently ignores unknown keys — add `extra="forbid"` so typos (e.g. `choas:`) are rejected, not dropped [src/tymi/config/models.py] (blind+edge, MED)
+- [x] [Review][Patch] No range validation on `tolerance`/`rate`/`rows` — add `Field` bounds (tolerance/rate 0–1, rows > 0) so bad values fail at load, not deep in later stages [src/tymi/config/models.py] (edge, MED)
+- [x] [Review][Patch] Non-string/malformed `schema_version` reported as generic `ConfigError` instead of `ConfigVersionError`; `_major` has a dead `AttributeError` branch — make the loader coerce+validate version robustly [src/tymi/config/loader.py] (blind+edge+auditor, MED)
+- [x] [Review][Patch] Missing tests for the above (non-string version, extra keys, out-of-range values) — a permissive model currently passes [tests/unit/test_config.py] (blind+edge, LOW)
+- [x] [Review][Patch] `FidelityReport` re-exported in ports `__all__` though no port returns it — remove dead re-export [src/tymi/ports/__init__.py] (blind+auditor, LOW)
+- [x] [Review][Dismiss] import-contracts test skips silently if `lint-imports` absent — CI runs `lint-imports` as a hard gate, so covered
+- [x] [Review][Dismiss] `seed=None` path untested — the real contract (same seed → same output) is already tested; None nondeterminism is not a guarantee to lock
 
 ## Dev Notes
 
@@ -158,3 +170,4 @@ Claude Opus 4.8 (claude-opus-4-8) — bmad-dev-story
 | Date | Change |
 | --- | --- |
 | 2026-07-01 | Implemented Story 1.1 — project scaffold + hexagonal skeleton (core/ports/domain), config, RNG, plugin registry, CLI shell, import-linter contracts, unit tests, CI. Status → review. |
+| 2026-07-01 | Code review (3 adversarial layers). Applied 5 patches: config `extra="forbid"`, range bounds on tolerance/rate/rows, robust `schema_version` gating, +4 config tests, removed dead `FidelityReport` re-export. 2 findings dismissed. 15 tests passing. Status → done. |

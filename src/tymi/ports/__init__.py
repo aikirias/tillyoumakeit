@@ -10,7 +10,7 @@ from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
 
-from tymi.domain.artifacts import Dataset, FaultManifest, FidelityReport, Profile, Schema
+from tymi.domain.artifacts import Dataset, FaultManifest, Profile, Schema
 
 
 @runtime_checkable
@@ -88,5 +88,4 @@ __all__ = [
     "PrivacyFilter",
     "Evaluator",
     "Exporter",
-    "FidelityReport",
 ]
