@@ -5,7 +5,7 @@ page whenever a story changes status.
 
 Legend: ✅ done · 🚧 in progress · ⬜ not started
 
-## Epic 1 — Foundation & Source Profiling
+## Epic 1 — Foundation & Source Profiling ✅
 
 | Story | Scope | Status |
 | --- | --- | --- |
@@ -16,7 +16,7 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 | 1.5 | **Streaming, seed-reproducible sampling** (`tymi sample`) — per-dialect random SQL; PG/MySQL reproducibility verified on real containers. MSSQL (`NEWID()`) and StarRocks (distributed `RAND`) are random but **not** seed-reproducible (flagged via `reproducible_sample` + a CLI notice). Schema-qualified table names supported. | ✅ |
 | 1.6 | **Per-column statistical profiler** (`tymi profile`) — numeric/categorical/datetime/text stats, no raw free-text values (AD-6); the first real Profile. Verified on real PG + MySQL | ✅ |
 | 1.7 | **Correlation detection** — pairwise numeric correlation (Spearman) + first-order categorical dependencies (Cramér's V, in-house chi²) attached to the Profile; serializes to valid JSON (undefined → `null`, no raw values, AD-6). Verified on real PG + MySQL | ✅ |
-| 1.8 | Persistent, versioned Profile | ⬜ |
+| 1.8 | **Persistent, versioned Profile** (`tymi profile -o profile.yaml` / `--load`) — YAML save/load round-trip with `schema_version` gating; a loaded Profile is consumed fully **offline** (no source connection). Verified on real PG + MySQL | ✅ |
 
 ## Epic 2 — Faithful Synthetic Data ⬜
 
@@ -46,6 +46,12 @@ Wizard exposing the full connect → profile → configure → preview → expor
   real containers; MSSQL in CI with the ODBC driver; StarRocks opt-in.)
 - Config loading/validation (Pydantic v2 + YAML, `schema_version` gating).
 - The plugin registry (`tymi.engines`, `tymi.mutators`).
+- `tymi schema` / `tymi sample` — schema introspection and seed-reproducible
+  sampling (PG/MySQL) for all four engines.
+- `tymi profile <table>` — the full source Profile: per-column stats
+  (numeric/categorical/datetime/text), cross-column correlations (Spearman +
+  Cramér's V), no raw values (AD-6). `-o profile.yaml` saves a versioned Profile;
+  `--load profile.yaml` reads it back **offline** (no source connection).
 
-Everything under "Profile / Generate / Chaos / Export" is designed (see the PRD
-and architecture spine) but not yet implemented.
+Everything under "Generate / Chaos / Export" is designed (see the PRD and
+architecture spine) but not yet implemented — Epic 2 consumes the Profile next.

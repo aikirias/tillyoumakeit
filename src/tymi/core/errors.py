@@ -15,6 +15,14 @@ class ConfigVersionError(ConfigError):
     """The config file's ``schema_version`` major is not supported."""
 
 
+class ProfileError(TymiError):
+    """A saved Profile artifact is unreadable or malformed."""
+
+
+class ProfileVersionError(ProfileError):
+    """A saved Profile's ``schema_version`` major is not supported."""
+
+
 class EngineError(TymiError):
     """A source/destination engine adapter failed."""
 

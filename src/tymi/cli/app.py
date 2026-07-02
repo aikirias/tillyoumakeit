@@ -11,10 +11,16 @@ from pathlib import Path
 import typer
 
 from tymi.config import load_config
-from tymi.core.errors import ConfigError, EngineConnectionError, TableNotFoundError
+from tymi.core.errors import (
+    ConfigError,
+    EngineConnectionError,
+    ProfileError,
+    TableNotFoundError,
+)
 from tymi.core.plugins import load_engines
 from tymi.core.rng import make_rng
 from tymi.domain.artifacts import profile_to_json, schema_to_json
+from tymi.profiling.profile_io import load_profile, save_profile
 from tymi.profiling.profiler import profile_dataset
 
 app = typer.Typer(
@@ -138,13 +144,46 @@ def sample(
 
 @app.command(name="profile")
 def profile(
-    table: str = typer.Argument(..., help="Table name to profile."),
-    engine: str = _ENGINE_OPTION,
-    config: Path = _CONFIG_OPTION,
+    table: str | None = typer.Argument(None, help="Table to profile (omit with --load)."),
+    engine: str | None = typer.Option(None, "--engine", "-e", help="Engine name, e.g. 'postgres'."),
+    config: Path | None = typer.Option(
+        None, "--config", "-c", exists=True, dir_okay=False, help="Path to the YAML config."
+    ),
     rows: int = typer.Option(1000, "--rows", "-n", min=1, help="Rows to sample for the profile."),
     seed: int = typer.Option(0, "--seed", "-s", help="Seed for the sample."),
+    out: Path | None = typer.Option(
+        None, "--out", "-o", dir_okay=False, help="Write the Profile to a YAML file."
+    ),
+    load: Path | None = typer.Option(
+        None,
+        "--load",
+        exists=True,
+        dir_okay=False,
+        help="Load and print a saved Profile YAML offline (no DB connection).",
+    ),
 ) -> None:
-    """Sample a table, build its statistical Profile, and print it as JSON."""
+    """Sample a table and build its Profile, or load a saved Profile offline.
+
+    With ``--load`` the Profile is read from a file and printed with no source
+    connection. Otherwise a table is sampled and profiled; ``-o`` saves the
+    Profile to YAML instead of printing JSON.
+    """
+    if load is not None:
+        if out is not None:
+            typer.echo("--out cannot be combined with --load.")
+            raise typer.Exit(code=2)
+        try:
+            loaded = load_profile(load)
+        except ProfileError as exc:
+            typer.echo(f"Could not load profile: {exc}")
+            raise typer.Exit(code=1) from None
+        typer.echo(profile_to_json(loaded))
+        return
+
+    if table is None or engine is None or config is None:
+        typer.echo("profile requires TABLE, --engine and --config (or use --load FILE).")
+        raise typer.Exit(code=2)
+
     adapter = _load_adapter(engine, config)
     try:
         dataset = adapter.sample(table, rows=rows, rng=make_rng(seed))
@@ -154,7 +193,13 @@ def profile(
     except EngineConnectionError as exc:
         typer.echo(f"Connection failed: {exc}")
         raise typer.Exit(code=1) from None
-    typer.echo(profile_to_json(profile_dataset(dataset)))
+
+    result = profile_dataset(dataset)
+    if out is not None:
+        save_profile(result, out)
+        typer.echo(f"Profile written to {out} ({len(result.columns)} columns).")
+    else:
+        typer.echo(profile_to_json(result))
 
 
 if __name__ == "__main__":  # pragma: no cover
