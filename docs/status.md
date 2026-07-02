@@ -18,11 +18,17 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 | 1.7 | **Correlation detection** — pairwise numeric correlation (Spearman) + first-order categorical dependencies (Cramér's V, in-house chi²) attached to the Profile; serializes to valid JSON (undefined → `null`, no raw values, AD-6). Verified on real PG + MySQL | ✅ |
 | 1.8 | **Persistent, versioned Profile** (`tymi profile -o profile.yaml` / `--load`) — YAML save/load round-trip with `schema_version` gating; a loaded Profile is consumed fully **offline** (no source connection). Verified on real PG + MySQL | ✅ |
 
-## Epic 2 — Faithful Synthetic Data ⬜
+## Epic 2 — Faithful Synthetic Data 🚧
 
-Marginal distributions, correlations (in-house Gaussian copula), referential
-integrity, conditional generation, leakage gate, multi-destination export,
-fidelity report.
+| Story | Scope | Status |
+| --- | --- | --- |
+| 2.1 | **Marginal distribution synthesis** (`tymi generate --profile … --rows … --seed …`) — per-column reproduction from the Profile: numeric inverse-transform from the histogram, categorical from stored frequencies, datetime across range, length-faithful synthetic text; nulls reproduced; canonical Schema preserved (AD-10); deterministic (AD-4/AD-11); no raw values (AD-6). Verified on real PG + MySQL | ✅ |
+| 2.2 | Correlation preservation (in-house Gaussian copula) | ⬜ |
+| 2.3 | Referential integrity + realistic synthetic values | ⬜ |
+| 2.4 | Conditional (seeded) generation | ⬜ |
+| 2.5 | Leakage gate over declared sensitive columns | ⬜ |
+| 2.6 | Multi-destination export | ⬜ |
+| 2.7 | Fidelity Report | ⬜ |
 
 ## Epic 3 — Data Chaos Monkey ⬜
 
@@ -52,6 +58,11 @@ Wizard exposing the full connect → profile → configure → preview → expor
   (numeric/categorical/datetime/text), cross-column correlations (Spearman +
   Cramér's V), no raw values (AD-6). `-o profile.yaml` saves a versioned Profile;
   `--load profile.yaml` reads it back **offline** (no source connection).
+- `tymi generate --profile profile.yaml --rows N --seed S` — **faithful marginal
+  synthesis**: loads a saved Profile **offline** and emits N synthetic rows whose
+  per-column distributions match the Profile (correlations land in Story 2.2),
+  as CSV. Deterministic per seed; canonical Schema preserved (AD-10).
 
-Everything under "Generate / Chaos / Export" is designed (see the PRD and
-architecture spine) but not yet implemented — Epic 2 consumes the Profile next.
+Correlation-aware generation, chaos, privacy filters, evaluation and export are
+designed (see the PRD and architecture spine) but not yet implemented — Story 2.2
+adds cross-column correlation next.

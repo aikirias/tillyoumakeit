@@ -22,6 +22,7 @@ from tymi.core.rng import make_rng
 from tymi.domain.artifacts import profile_to_json, schema_to_json
 from tymi.profiling.profile_io import load_profile, save_profile
 from tymi.profiling.profiler import profile_dataset
+from tymi.synth.marginals import generate_marginals
 
 app = typer.Typer(
     name="tymi",
@@ -33,7 +34,6 @@ app = typer.Typer(
 _NOT_IMPLEMENTED_EXIT = 2
 
 _STUB_COMMANDS = {
-    "generate": "Generate faithful synthetic data from a Profile.",
     "chaos": "Generate chaotic data from a Profile.",
     "report": "Produce fidelity / quality & privacy reports.",
     "export": "Export generated data to files or an engine.",
@@ -204,6 +204,39 @@ def profile(
         typer.echo(f"Profile written to {out} ({len(result.columns)} columns).")
     else:
         typer.echo(profile_to_json(result))
+
+
+@app.command(name="generate")
+def generate(
+    profile_path: Path = typer.Option(
+        ...,
+        "--profile",
+        "-p",
+        exists=True,
+        dir_okay=False,
+        help="Path to a saved Profile YAML.",
+    ),
+    rows: int = typer.Option(1000, "--rows", "-n", min=1, help="Number of rows to generate."),
+    seed: int = typer.Option(0, "--seed", "-s", help="Seed for reproducible generation."),
+) -> None:
+    """Generate faithful synthetic data from a saved Profile (offline) as CSV.
+
+    The Profile is loaded from a file with no source connection; each column's
+    marginal distribution is reproduced (correlations land in a later story).
+    """
+    try:
+        loaded = load_profile(profile_path)
+    except ProfileError as exc:
+        typer.echo(f"Could not load profile: {exc}")
+        raise typer.Exit(code=1) from None
+    try:
+        dataset = generate_marginals(loaded, rows=rows, rng=make_rng(seed))
+    except (ValueError, OverflowError) as exc:
+        # A Profile can load yet carry invalid content (e.g. an unparsable or
+        # out-of-range datetime bound); surface it cleanly instead of a traceback.
+        typer.echo(f"Could not generate from profile: {exc}")
+        raise typer.Exit(code=1) from None
+    typer.echo(dataset.frame.to_csv(index=False))
 
 
 if __name__ == "__main__":  # pragma: no cover
