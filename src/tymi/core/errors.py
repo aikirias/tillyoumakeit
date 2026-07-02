@@ -23,6 +23,10 @@ class ProfileVersionError(ProfileError):
     """A saved Profile's ``schema_version`` major is not supported."""
 
 
+class GenerationError(TymiError):
+    """Synthetic generation cannot satisfy the request (e.g. a cyclic FK graph)."""
+
+
 class EngineError(TymiError):
     """A source/destination engine adapter failed."""
 

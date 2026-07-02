@@ -23,6 +23,7 @@ import numpy as np
 
 from tymi.domain.artifacts import CorrelationMatrix, Dataset, Profile
 from tymi.synth.copula import gaussian_copula_uniforms
+from tymi.synth.faker_values import apply_formatted_values
 from tymi.synth.marginals import synthesize
 
 #: Default max absolute divergence allowed between source and generated pairwise
@@ -45,7 +46,9 @@ def generate_faithful(profile: Profile, *, rows: int, rng: np.random.Generator) 
     if rows < 0:
         raise ValueError(f"rows must be >= 0, got {rows}")
     uniforms = _correlated_uniforms(profile, rows, rng)
-    return synthesize(profile, rows=rows, rng=rng, uniforms=uniforms)
+    dataset = synthesize(profile, rows=rows, rng=rng, uniforms=uniforms)
+    # Overlay realistic email/name/phone/uuid values on matching text columns.
+    return apply_formatted_values(dataset, rng=rng)
 
 
 def _correlated_uniforms(

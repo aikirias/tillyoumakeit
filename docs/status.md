@@ -24,7 +24,7 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 | --- | --- | --- |
 | 2.1 | **Marginal distribution synthesis** (`tymi generate --profile … --rows … --seed …`) — per-column reproduction from the Profile: numeric inverse-transform from the histogram, categorical from stored frequencies, datetime across range, length-faithful synthetic text; nulls reproduced; canonical Schema preserved (AD-10); deterministic (AD-4/AD-11); no raw values (AD-6). Verified on real PG + MySQL | ✅ |
 | 2.2 | **Correlation preservation (in-house Gaussian copula)** — numeric cross-column correlations from the Profile (Spearman) preserved via an in-house Gaussian copula (numpy + `scipy.special.ndtr`); marginals unchanged; deterministic; categorical cross-dependency deferred to a follow-up. Verified on real PG + MySQL | ✅ |
-| 2.3 | Referential integrity + realistic synthetic values | ⬜ |
+| 2.3 | **Referential integrity + realistic synthetic values** — `generate_related` produces related tables in topological order (parents before children, cycle detection), with unique PKs and every FK pointing at a real parent value (incl. junction/self-referential tables); text columns that look like email/name/phone/id get realistic **Faker** values (single-table `tymi generate` too). Verified on real PG + MySQL | ✅ |
 | 2.4 | Conditional (seeded) generation | ⬜ |
 | 2.5 | Leakage gate over declared sensitive columns | ⬜ |
 | 2.6 | Multi-destination export | ⬜ |
@@ -62,9 +62,15 @@ Wizard exposing the full connect → profile → configure → preview → expor
   loads a saved Profile **offline** and emits N synthetic rows whose per-column
   distributions match the Profile **and** whose numeric cross-column correlations
   are preserved via an in-house Gaussian copula, as CSV. Deterministic per seed;
-  canonical Schema preserved (AD-10); no SDV/Copulas (AD-9). Categorical
+  canonical Schema preserved (AD-10); no SDV/Copulas (AD-9). Text columns that look
+  like email/name/phone/id get realistic **Faker** values (Story 2.3). Categorical
   cross-dependency preservation is a documented follow-up.
+- `generate_related(profiles, rows, rng)` (library) — **multi-table referential
+  integrity**: related tables generated parents-before-children with unique PKs and
+  valid FKs (incl. junction/self-referential tables). Verified on real PG + MySQL.
+  Wiring a multi-table surface into the CLI/pipeline orchestrator lands with the
+  export/pipeline stories.
 
 Chaos, privacy filters, evaluation and export are designed (see the PRD and
-architecture spine) but not yet implemented — Story 2.3 (referential integrity +
-realistic synthetic values) is next.
+architecture spine) but not yet implemented — Story 2.4 (conditional/seeded
+generation) is next.
