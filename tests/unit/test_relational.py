@@ -308,6 +308,37 @@ def test_fk_column_keeps_integer_dtype() -> None:
     assert pd.api.types.is_integer_dtype(out["orders"].frame["user_id"].dtype)
 
 
+def test_junction_capacity_counts_distinct_values() -> None:
+    # a junction whose PK column references a NON-unique parent column: capacity is
+    # counted in distinct-value space, so an over-request raises instead of silently
+    # shipping duplicate PKs.
+    grp_parent = _profile(
+        pd.DataFrame({"id": range(10), "grp": [i % 2 for i in range(10)]}),
+        Schema(
+            columns=(Column("id", LogicalType.INTEGER), Column("grp", LogicalType.INTEGER)),
+            primary_key=("id",),
+        ),
+    )
+    junction = _profile(
+        pd.DataFrame({"g": [0] * 30, "c": [0] * 30}),
+        Schema(
+            columns=(Column("g", LogicalType.INTEGER), Column("c", LogicalType.INTEGER)),
+            primary_key=("g", "c"),
+            foreign_keys=(
+                ForeignKey(("g",), "gp", ("grp",)),  # references a NON-unique column
+                ForeignKey(("c",), "courses", ("id",)),
+            ),
+        ),
+    )
+    # grp has 2 distinct x courses 6 distinct = 12 combos; 30 rows is impossible
+    with pytest.raises(GenerationError, match="distinct parent-key combinations"):
+        generate_related(
+            {"j": junction, "gp": grp_parent, "courses": _courses()},
+            rows={"gp": 10, "courses": 6, "j": 30},
+            rng=make_rng(0),
+        )
+
+
 def test_dedupe_object_never_collides() -> None:
     # the suffix must not recreate an already-present value
     out = _dedupe_object(pd.Series(["a", "a", "a-1", "a"]))

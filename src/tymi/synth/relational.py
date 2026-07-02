@@ -184,7 +184,7 @@ def _assign_unique_junction_pk(
     rng: np.random.Generator,
 ) -> None:
     """Fill an all-FK primary key with ``n`` unique, referentially-valid combos."""
-    groups: list[tuple[dict[str, str], dict[str, pd.Series]]] = []
+    groups: list[tuple[list[tuple[str, str]], pd.DataFrame]] = []
     covered: set[str] = set()
     for fk in schema.foreign_keys:
         pk_in_fk = [c for c in fk.columns if c in pk]
@@ -196,26 +196,34 @@ def _assign_unique_junction_pk(
                 f"cannot enforce unique primary key on junction table {table!r}: "
                 f"parent {fk.referred_table!r} is unavailable"
             )
-        mapping = {c: fk.referred_columns[i] for i, c in enumerate(fk.columns) if c in pk}
-        groups.append((mapping, parent))
+        pairs = [(c, fk.referred_columns[i]) for i, c in enumerate(fk.columns) if c in pk]
+        # De-duplicate the referred value-tuples so distinct sampled indices map to
+        # distinct PK tuples even when the referred column is not itself unique;
+        # capacity is then counted in value space, not parent-row space.
+        candidates = (
+            pd.DataFrame({referred: parent[referred] for _, referred in pairs})
+            .drop_duplicates()
+            .reset_index(drop=True)
+        )
+        groups.append((pairs, candidates))
         covered.update(pk_in_fk)
     if any(col not in covered for col in pk):
         raise GenerationError(f"primary key of {table!r} mixes FK and unknown columns")
 
-    lengths = [len(next(iter(parent.values()))) for _, parent in groups]
+    lengths = [len(candidates) for _, candidates in groups]
     capacity = 1
     for length in lengths:
         capacity *= length
     if capacity < n:
         raise GenerationError(
             f"cannot generate {n} unique rows for junction table {table!r}: "
-            f"only {capacity} parent-key combinations exist"
+            f"only {capacity} distinct parent-key combinations exist"
         )
     combos = _unique_index_tuples(lengths, n, rng)
-    for group_i, (mapping, parent) in enumerate(groups):
+    for group_i, (pairs, candidates) in enumerate(groups):
         selection = np.array([combos[row][group_i] for row in range(n)])
-        for pk_col, referred_col in mapping.items():
-            frame[pk_col] = _take(parent[referred_col], selection, frame.index)
+        for pk_col, referred_col in pairs:
+            frame[pk_col] = _take(candidates[referred_col], selection, frame.index)
 
 
 def _unique_index_tuples(lengths: list[int], n: int, rng: np.random.Generator) -> list[tuple]:
