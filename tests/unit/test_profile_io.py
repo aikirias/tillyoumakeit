@@ -109,6 +109,14 @@ def test_missing_file_raises_profile_error(tmp_path: Path) -> None:
         load_profile(tmp_path / "does-not-exist.yaml")
 
 
+def test_save_to_nonexistent_dir_raises_oserror(tmp_path: Path) -> None:
+    # save into a missing parent dir raises OSError; the CLI wraps this into a
+    # clean message + exit code rather than a raw traceback.
+    profile = profile_dataset(_dataset())
+    with pytest.raises(OSError):
+        save_profile(profile, tmp_path / "no-such-dir" / "p.yaml")
+
+
 @pytest.mark.parametrize(
     "body",
     [

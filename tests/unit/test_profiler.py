@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import pandas as pd
+import pytest
 
 from tymi.domain.artifacts import Column, Dataset, LogicalType, Schema, profile_to_json
 from tymi.profiling.profiler import profile_dataset
@@ -118,6 +119,23 @@ def test_numeric_inf_is_dropped() -> None:
     col = profile_dataset(Dataset(frame=frame, schema=schema)).columns[0]
     assert col.numeric is not None
     assert col.numeric.max == 2.0  # inf excluded
+
+
+def test_histogram_bins_must_be_positive() -> None:
+    frame = pd.DataFrame({"n": [1.0, 2.0, 3.0]})
+    schema = Schema(columns=(Column("n", LogicalType.FLOAT),))
+    with pytest.raises(ValueError, match="histogram_bins"):
+        profile_dataset(Dataset(frame=frame, schema=schema), histogram_bins=0)
+
+
+def test_mixed_dtype_categorical_merges_by_string_label() -> None:
+    # object column mixing int 1 and str "1" must collapse to one "1" category
+    # with the summed count, not two split entries.
+    frame = pd.DataFrame({"c": pd.Series([1, "1", "1"], dtype=object)})
+    schema = Schema(columns=(Column("c", LogicalType.CATEGORICAL),))
+    cats = profile_dataset(Dataset(frame=frame, schema=schema)).columns[0].categories
+    assert len(cats) == 1
+    assert cats[0].value == "1" and cats[0].count == 3
 
 
 def test_profile_json_is_valid() -> None:

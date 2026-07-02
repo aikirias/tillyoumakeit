@@ -13,6 +13,11 @@
 
 ## Workflow
 
+- **Always run the full `bmad-code-review` gate on every story before marking it
+  done.** This is the 3-layer adversarial review (Blind Hunter + Edge Case Hunter
+  + Acceptance Auditor), not a single focused review pass. Run it after
+  implementation + tests pass and before the final commit; apply the triaged
+  findings. Never mark a story `done` without it.
 - **Run `/compact` at the end of each story within an epic.** Once a story is
   fully finished (implemented, reviewed, committed/pushed, docs + status updated),
   compact the conversation before starting the next story. This keeps the working

@@ -38,6 +38,8 @@ def profile_dataset(
     histogram_bins: int = 10,
 ) -> Profile:
     """Profile every column of a Dataset according to its logical type."""
+    if histogram_bins < 1:
+        raise ValueError(f"histogram_bins must be >= 1, got {histogram_bins}")
     frame = dataset.frame
     columns = tuple(
         _profile_column(
@@ -121,7 +123,10 @@ def _numeric_stats(series: pd.Series, histogram_bins: int) -> NumericStats | Non
 
 
 def _category_frequencies(series: pd.Series, top_k: int) -> tuple[CategoryFrequency, ...]:
-    counts = series.value_counts()
+    # Stringify *before* counting so a mixed-dtype object column (e.g. 1 and "1"
+    # from a driver) does not emit two categories that both serialize to "1" with
+    # split counts; labels are stored as strings anyway.
+    counts = series.astype(str).value_counts()
     # deterministic: highest count first, ties broken by value
     ordered = sorted(counts.items(), key=lambda kv: (-int(kv[1]), str(kv[0])))[:top_k]
     return tuple(CategoryFrequency(value=str(v), count=int(c)) for v, c in ordered)

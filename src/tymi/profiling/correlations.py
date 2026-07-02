@@ -28,6 +28,12 @@ from tymi.domain.artifacts import ColumnProfile, CorrelationMatrix, Correlations
 #: stable across platforms (float noise would otherwise churn the artifact).
 _ROUND = 6
 
+#: Minimum pairwise-complete observations for a numeric correlation to be
+#: meaningful. A 2-point overlap is always trivially ±1.0 (two points are
+#: perfectly monotone), so anything below 3 is fabricated certainty — such
+#: off-diagonal cells are left undefined (``None``) rather than reported.
+_MIN_PERIODS = 3
+
 
 def detect_correlations(
     frame: pd.DataFrame,
@@ -64,9 +70,12 @@ def _numeric_correlation(frame: pd.DataFrame, cols: list[str]) -> CorrelationMat
     kept = [c for c in cols if numeric[c].nunique(dropna=True) >= 2]
     if len(kept) < 2:
         return None
-    corr = numeric[kept].corr(method="spearman", min_periods=1)
+    corr = numeric[kept].corr(method="spearman", min_periods=_MIN_PERIODS)
+    # Diagonal is self-correlation (definitionally 1.0); off-diagonals below the
+    # overlap floor come back NaN from pandas and are cleaned to None.
     matrix = tuple(
-        tuple(_clean(corr.iat[i, j]) for j in range(len(kept))) for i in range(len(kept))
+        tuple(1.0 if i == j else _clean(corr.iat[i, j]) for j in range(len(kept)))
+        for i in range(len(kept))
     )
     return CorrelationMatrix(method="spearman", columns=tuple(kept), matrix=matrix)
 

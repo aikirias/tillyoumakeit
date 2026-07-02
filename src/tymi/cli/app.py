@@ -196,7 +196,11 @@ def profile(
 
     result = profile_dataset(dataset)
     if out is not None:
-        save_profile(result, out)
+        try:
+            save_profile(result, out)
+        except OSError as exc:
+            typer.echo(f"Could not write profile: {exc}")
+            raise typer.Exit(code=1) from None
         typer.echo(f"Profile written to {out} ({len(result.columns)} columns).")
     else:
         typer.echo(profile_to_json(result))

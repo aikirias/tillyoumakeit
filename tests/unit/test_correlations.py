@@ -123,6 +123,31 @@ def test_detection_is_deterministic() -> None:
     assert first == second
 
 
+def test_two_row_overlap_does_not_fabricate_perfect_correlation() -> None:
+    # z overlaps x/y in exactly 2 rows; a 2-point overlap is trivially +/-1.0,
+    # so the coefficient must be suppressed to None, not reported as certainty.
+    frame = pd.DataFrame(
+        {
+            "x": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            "y": [2.0, 4.0, 6.0, 8.0, 10.0, 12.0],
+            "z": [None, None, None, None, 100.0, 1.0],
+        }
+    )
+    profile = _profile(
+        frame,
+        (
+            Column("x", LogicalType.FLOAT),
+            Column("y", LogicalType.FLOAT),
+            Column("z", LogicalType.FLOAT),
+        ),
+    )
+    num = profile.correlations.numeric
+    zi = num.columns.index("z")
+    xi = num.columns.index("x")
+    assert num.matrix[zi][xi] is None  # only 2 overlapping rows => undefined
+    assert num.matrix[zi][zi] == 1.0  # diagonal stays 1.0
+
+
 def test_numeric_pair_with_insufficient_overlap_is_none() -> None:
     # x and y never co-occur (disjoint non-null support) => off-diagonal is None,
     # never a bare NaN in the serialized artifact.
