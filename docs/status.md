@@ -23,7 +23,7 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 | Story | Scope | Status |
 | --- | --- | --- |
 | 2.1 | **Marginal distribution synthesis** (`tymi generate --profile … --rows … --seed …`) — per-column reproduction from the Profile: numeric inverse-transform from the histogram, categorical from stored frequencies, datetime across range, length-faithful synthetic text; nulls reproduced; canonical Schema preserved (AD-10); deterministic (AD-4/AD-11); no raw values (AD-6). Verified on real PG + MySQL | ✅ |
-| 2.2 | Correlation preservation (in-house Gaussian copula) | ⬜ |
+| 2.2 | **Correlation preservation (in-house Gaussian copula)** — numeric cross-column correlations from the Profile (Spearman) preserved via an in-house Gaussian copula (numpy + `scipy.special.ndtr`); marginals unchanged; deterministic; categorical cross-dependency deferred to a follow-up. Verified on real PG + MySQL | ✅ |
 | 2.3 | Referential integrity + realistic synthetic values | ⬜ |
 | 2.4 | Conditional (seeded) generation | ⬜ |
 | 2.5 | Leakage gate over declared sensitive columns | ⬜ |
@@ -58,11 +58,13 @@ Wizard exposing the full connect → profile → configure → preview → expor
   (numeric/categorical/datetime/text), cross-column correlations (Spearman +
   Cramér's V), no raw values (AD-6). `-o profile.yaml` saves a versioned Profile;
   `--load profile.yaml` reads it back **offline** (no source connection).
-- `tymi generate --profile profile.yaml --rows N --seed S` — **faithful marginal
-  synthesis**: loads a saved Profile **offline** and emits N synthetic rows whose
-  per-column distributions match the Profile (correlations land in Story 2.2),
-  as CSV. Deterministic per seed; canonical Schema preserved (AD-10).
+- `tymi generate --profile profile.yaml --rows N --seed S` — **faithful synthesis**:
+  loads a saved Profile **offline** and emits N synthetic rows whose per-column
+  distributions match the Profile **and** whose numeric cross-column correlations
+  are preserved via an in-house Gaussian copula, as CSV. Deterministic per seed;
+  canonical Schema preserved (AD-10); no SDV/Copulas (AD-9). Categorical
+  cross-dependency preservation is a documented follow-up.
 
-Correlation-aware generation, chaos, privacy filters, evaluation and export are
-designed (see the PRD and architecture spine) but not yet implemented — Story 2.2
-adds cross-column correlation next.
+Chaos, privacy filters, evaluation and export are designed (see the PRD and
+architecture spine) but not yet implemented — Story 2.3 (referential integrity +
+realistic synthetic values) is next.

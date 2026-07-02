@@ -14,8 +14,11 @@ yields byte-identical output. AD-6 holds — only Profile aggregates are consume
 never raw values; free text is regenerated, not reproduced. The output Dataset
 carries the Profile's canonical ``Schema`` unchanged (AD-10).
 
-Cross-column **correlation** is NOT preserved here — columns are independent.
-Correlation preservation is Story 2.2 (in-house Gaussian copula).
+Cross-column **correlation** is not imposed here — ``generate_marginals`` treats
+columns independently. The numeric sampler is driven by a single uniform per row
+(``numeric_from_uniform``), so Story 2.2's Gaussian copula can inject *correlated*
+uniforms through ``generate_faithful`` (``tymi.synth.generator``) while reusing the
+exact same marginal inverse-CDF.
 """
 
 from __future__ import annotations
@@ -48,9 +51,30 @@ class MarginalSynthesizer:
 
 
 def generate_marginals(profile: Profile, *, rows: int, rng: np.random.Generator) -> Dataset:
-    """Generate ``rows`` synthetic rows matching ``profile``'s per-column marginals."""
+    """Generate ``rows`` synthetic rows matching ``profile``'s per-column marginals.
+
+    Columns are independent (no correlation). Correlation preservation composes
+    this via ``tymi.synth.generator.generate_faithful`` (Story 2.2).
+    """
+    return synthesize(profile, rows=rows, rng=rng, uniforms=None)
+
+
+def synthesize(
+    profile: Profile,
+    *,
+    rows: int,
+    rng: np.random.Generator,
+    uniforms: dict[str, np.ndarray] | None = None,
+) -> Dataset:
+    """Assemble the Dataset column-by-column, optionally injecting driven uniforms.
+
+    ``uniforms`` maps a column name to a pre-drawn ``[0, 1]`` vector used for that
+    (numeric) column's inverse-CDF — the Gaussian copula supplies correlated
+    uniforms here; unmapped columns draw independently.
+    """
     if rows < 0:
         raise ValueError(f"rows must be >= 0, got {rows}")
+    uniforms = uniforms or {}
 
     profiles_by_name = {c.name: c for c in profile.columns}
     # Drive column order from the canonical Schema when present, else from the
@@ -62,7 +86,7 @@ def generate_marginals(profile: Profile, *, rows: int, rng: np.random.Generator)
     for name in names:
         cp = profiles_by_name.get(name)
         data[name] = (
-            _generate_column(cp, rows, rng)
+            _generate_column(cp, rows, rng, uniform=uniforms.get(name))
             if cp is not None
             else pd.Series([None] * rows, dtype=object)
         )
@@ -82,8 +106,19 @@ def _null_mask(cp: ColumnProfile, rows: int, rng: np.random.Generator) -> np.nda
     return rng.random(rows) < null_prob
 
 
-def _generate_column(cp: ColumnProfile, rows: int, rng: np.random.Generator) -> pd.Series:
-    """Build one synthetic column as a pandas Series with a Schema-consistent dtype."""
+def _generate_column(
+    cp: ColumnProfile,
+    rows: int,
+    rng: np.random.Generator,
+    *,
+    uniform: np.ndarray | None = None,
+) -> pd.Series:
+    """Build one synthetic column as a pandas Series with a Schema-consistent dtype.
+
+    ``uniform`` (shape ``(rows,)``, values in ``[0, 1]``) drives the numeric
+    inverse-CDF when supplied — the Gaussian copula passes *correlated* uniforms
+    here; otherwise the numeric column draws its own independent uniform.
+    """
     mask = _null_mask(cp, rows, rng)
 
     # Dispatch on the stats actually present (a STRING column may carry either
@@ -92,7 +127,8 @@ def _generate_column(cp: ColumnProfile, rows: int, rng: np.random.Generator) -> 
         pass  # all-null; each branch below is skipped via the final fallback
     elif cp.numeric is not None:
         integer = cp.logical_type == LogicalType.INTEGER
-        return _numeric_series(_sample_numeric(cp.numeric, rows, rng), mask, integer=integer)
+        u = rng.random(rows) if uniform is None else np.asarray(uniform, dtype=float)
+        return _numeric_series(numeric_from_uniform(cp.numeric, u), mask, integer=integer)
     elif cp.categories is not None:
         labels = _sample_categorical(cp, rows, rng)
         if cp.logical_type == LogicalType.BOOLEAN:
@@ -110,20 +146,32 @@ def _generate_column(cp: ColumnProfile, rows: int, rng: np.random.Generator) -> 
 # --- per-type samplers ----------------------------------------------------
 
 
-def _sample_numeric(stats: NumericStats, rows: int, rng: np.random.Generator) -> np.ndarray:
-    """Inverse-transform sampling from the stored histogram, clamped to [min, max]."""
+def numeric_from_uniform(stats: NumericStats, uniform: np.ndarray) -> np.ndarray:
+    """Exact piecewise-linear inverse-CDF of the histogram, evaluated at ``uniform``.
+
+    Each bin is treated as uniform density; the CDF is piecewise-linear over the
+    bin edges. Mapping a uniform ``u ∈ [0, 1]`` through this inverse-CDF reproduces
+    the histogram's marginal shape from a *single* uniform per row — which lets the
+    Gaussian copula supply correlated uniforms without changing the marginal.
+    Values are clamped to the stored ``[min, max]``.
+    """
     edges = np.asarray(stats.histogram_bins, dtype=float)
     counts = np.asarray(stats.histogram_counts, dtype=float)
+    u = np.asarray(uniform, dtype=float)
     total = counts.sum()
     if edges.size < 2 or total <= 0:
-        # Degenerate histogram: fall back to uniform across the observed range.
-        values = stats.min + rng.random(rows) * (stats.max - stats.min)
-    else:
-        probs = counts / total
-        bins = rng.choice(counts.size, size=rows, p=probs)
-        lo = edges[bins]
-        hi = edges[bins + 1]
-        values = lo + rng.random(rows) * (hi - lo)
+        # Degenerate histogram: fall back to a uniform across the observed range.
+        return np.clip(stats.min + u * (stats.max - stats.min), stats.min, stats.max)
+    probs = counts / total
+    cdf = np.concatenate([[0.0], np.cumsum(probs)])
+    cdf[-1] = 1.0  # guard against floating-point drift at the top edge
+    # Bin index for each u: the last edge whose cumulative prob is <= u.
+    idx = np.clip(np.searchsorted(cdf, u, side="right") - 1, 0, probs.size - 1)
+    span = cdf[idx + 1] - cdf[idx]  # == probs[idx]; 0 only for empty bins
+    nonzero = span > 0
+    frac = np.zeros_like(u)
+    frac[nonzero] = (u[nonzero] - cdf[idx][nonzero]) / span[nonzero]
+    values = edges[idx] + frac * (edges[idx + 1] - edges[idx])
     return np.clip(values, stats.min, stats.max)
 
 

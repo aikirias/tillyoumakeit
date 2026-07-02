@@ -22,7 +22,7 @@ from tymi.core.rng import make_rng
 from tymi.domain.artifacts import profile_to_json, schema_to_json
 from tymi.profiling.profile_io import load_profile, save_profile
 from tymi.profiling.profiler import profile_dataset
-from tymi.synth.marginals import generate_marginals
+from tymi.synth.generator import generate_faithful
 
 app = typer.Typer(
     name="tymi",
@@ -222,7 +222,8 @@ def generate(
     """Generate faithful synthetic data from a saved Profile (offline) as CSV.
 
     The Profile is loaded from a file with no source connection; each column's
-    marginal distribution is reproduced (correlations land in a later story).
+    marginal distribution is reproduced and the source's numeric correlations are
+    preserved via the in-house Gaussian copula.
     """
     try:
         loaded = load_profile(profile_path)
@@ -230,7 +231,7 @@ def generate(
         typer.echo(f"Could not load profile: {exc}")
         raise typer.Exit(code=1) from None
     try:
-        dataset = generate_marginals(loaded, rows=rows, rng=make_rng(seed))
+        dataset = generate_faithful(loaded, rows=rows, rng=make_rng(seed))
     except (ValueError, OverflowError) as exc:
         # A Profile can load yet carry invalid content (e.g. an unparsable or
         # out-of-range datetime bound); surface it cleanly instead of a traceback.
