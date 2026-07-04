@@ -12,12 +12,12 @@ from __future__ import annotations
 
 import streamlit as st
 
+from tymi.core.errors import TymiError
 from tymi.ui import services
 
 #: Wizard steps shown in the sidebar. Steps past Connection are filled in 5.2–5.5.
 STEPS = ("Connection", "Profile", "Generate", "Chaos", "Reports")
 _PLACEHOLDER = {
-    "Profile": "Profile & schema explorer — Story 5.2.",
     "Generate": "Faithful generation config & preview — Story 5.3.",
     "Chaos": "Chaos policy config & preview — Story 5.4.",
     "Reports": "Reports view & export — Story 5.5.",
@@ -76,6 +76,52 @@ def render_connection() -> None:
         st.info("No connection configured yet.")
 
 
+def render_profile() -> None:
+    """Sample + profile a table and show its schema and per-column distribution charts."""
+    st.header("Profile")
+    config = _config()
+    if services.connection_summary(config) is None:
+        st.info("Configure a connection first (the Connection step).")
+        return
+
+    with st.form("profile_form"):
+        table = st.text_input("Table")
+        rows = st.number_input("Sample rows", min_value=1, value=1000)
+        seed = st.number_input("Seed", min_value=0, value=0)
+        classify = st.checkbox("Auto-classify PII (Story 4.1)")
+        go = st.form_submit_button("Profile")
+
+    if go:
+        # Drop any previously profiled table so a failed re-profile can't leave stale
+        # schema/charts rendered below the error, mismatched with the current table.
+        st.session_state.pop("profile", None)
+        try:
+            profile = services.run_profile(
+                config, table, rows=int(rows), seed=int(seed), classify_pii=classify
+            )
+            st.session_state["profile"] = profile
+            st.success(f"Profiled {table!r}: {len(profile.columns)} columns.")
+        except (ValueError, TymiError) as exc:
+            # Our own validation + scrubbed adapter errors are safe to show verbatim.
+            st.error(f"Could not profile: {exc}")
+        except Exception:  # noqa: BLE001 - a misbehaving adapter/driver error can embed a
+            # DSN/password; don't echo the raw traceback (NFR-6, as in test_connection).
+            st.error("Could not profile: unexpected adapter error.")
+
+    profile = st.session_state.get("profile")
+    if profile is not None:
+        st.subheader("Schema")
+        st.dataframe(services.schema_table(profile.schema))
+        st.subheader("Distributions")
+        for chart in services.profile_charts(profile):
+            st.markdown(f"**{chart.name}** — {chart.logical_type}")
+            if chart.data is not None:
+                st.bar_chart(chart.data)
+            if chart.extra is not None:  # datetime: month frequency alongside day-of-week
+                st.bar_chart(chart.extra)
+            st.caption(", ".join(f"{k}={v}" for k, v in chart.summary.items()))
+
+
 def main() -> None:
     """Render the sidebar wizard and the selected step."""
     st.set_page_config(page_title="TYMI", page_icon="🎲")
@@ -84,6 +130,8 @@ def main() -> None:
     step = st.sidebar.radio("Step", STEPS)
     if step == "Connection":
         render_connection()
+    elif step == "Profile":
+        render_profile()
     else:
         st.header(step)
         st.info(_PLACEHOLDER[step])

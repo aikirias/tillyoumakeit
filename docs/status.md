@@ -56,7 +56,7 @@ Wizard exposing the full connect → profile → configure → preview → expor
 | Story | Scope | Status |
 | --- | --- | --- |
 | 5.1 | **App shell + connection management** — `tymi ui` launches an in-process Streamlit wizard (driving adapter beside the CLI, no REST — AD-8); a sidebar walks Connection → Profile → Generate → Chaos → Reports. The Connection page builds/tests an engine adapter in-process and writes the connection into the one shared Pydantic `Config` (the same artifact the CLI loads). Credentials are never entered or shown — only the *names* of the env vars holding them (NFR-6). Logic lives in a pure `services.py` (engine registry injectable); the view is a thin `app.py` driven in tests by `streamlit.testing.v1.AppTest` | ✅ |
-| 5.2 | Profile & schema explorer | ⬜ |
+| 5.2 | **Profile & schema explorer** — the Profile page samples + profiles a table in-process (`run_profile`, byte-identical to the CLI `profile` wiring, AD-8) and stores the `Profile` in session; it renders the normalized Schema table (name/type/nullable/PK) and per-column distribution charts built only from the Profile's stored aggregates (AD-6): numeric → histogram, categorical → frequencies, datetime → day-of-week + month, text → length summary. No-connection guidance; failure surfaces without echoing raw driver errors (NFR-6) and clears any stale profile | ✅ |
 | 5.3 | Faithful generation config + preview | ⬜ |
 | 5.4 | Chaos policy config + preview | ⬜ |
 | 5.5 | Reports view + export | ⬜ |

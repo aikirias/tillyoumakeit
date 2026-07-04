@@ -10,9 +10,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pandas as pd
+
 from tymi.config.models import Config, ConnectionConfig, SourceConfig
 from tymi.core.errors import EngineConnectionError, TymiError
 from tymi.core.plugins import load_engines
+from tymi.core.rng import make_rng
+from tymi.domain.artifacts import ColumnProfile, Profile, Schema
+from tymi.profiling.profiler import profile_dataset
 
 #: Engines selectable in the connection form (the four AD-2 adapters).
 ENGINES = ("mssql", "postgres", "mysql", "starrocks")
@@ -112,13 +117,148 @@ def test_connection(
     return ConnectionResult(True, f"Connection to {source.engine!r} OK.")
 
 
+# --- profile & schema explorer (Story 5.2) ----------------------------------
+
+
+@dataclass(frozen=True)
+class ColumnChart:
+    """Display-ready distribution view for one column, built from the Profile aggregates."""
+
+    name: str
+    logical_type: str
+    kind: str  # "histogram" | "categories" | "datetime" | "text" | "empty"
+    data: pd.DataFrame | None
+    summary: dict[str, object]
+    #: A second chart frame (datetime: month frequency alongside ``data``'s day-of-week).
+    extra: pd.DataFrame | None = None
+
+
+def run_profile(
+    config: Config,
+    table: str,
+    *,
+    rows: int = 1000,
+    seed: int = 0,
+    extra_sensitive: tuple[str, ...] = (),
+    classify_pii: bool = False,
+    engines: dict[str, type] | None = None,
+) -> Profile:
+    """Sample ``table`` and profile it — the identical artifact ``tymi profile`` builds.
+
+    Mirrors the CLI ``profile`` command: same sample + same ``profile_dataset`` call
+    (sensitive columns merged from the Config and the extra list, order-preserving), so
+    the UI never produces a divergent Profile (AD-8).
+    """
+    source = config.source
+    if source.engine is None or source.connection is None:
+        raise ValueError("No connection configured.")
+    if not table.strip():
+        raise ValueError("Table name is required.")
+    if seed < 0:
+        raise ValueError("seed must be >= 0.")
+    registry = engines if engines is not None else load_engines()
+    adapter_cls = registry.get(source.engine)
+    if adapter_cls is None:
+        raise ValueError(f"Unknown engine {source.engine!r}. Available: {sorted(registry)}")
+    adapter = adapter_cls(source.connection)
+    dataset = adapter.sample(table.strip(), rows=rows, rng=make_rng(seed))
+    sensitive = list(dict.fromkeys([*extra_sensitive, *source.sensitive_columns]))
+    return profile_dataset(
+        dataset,
+        sensitive_columns=sensitive,
+        not_sensitive_columns=source.not_sensitive_columns,
+        classify_pii=classify_pii,
+    )
+
+
+def schema_table(schema: Schema) -> pd.DataFrame:
+    """The Schema as a display table: column name, logical type, nullability, PK flag."""
+    return pd.DataFrame(
+        [
+            {
+                "column": c.name,
+                "type": c.logical_type.value,
+                "nullable": c.nullable,
+                "primary_key": c.primary_key,
+            }
+            for c in schema.columns
+        ],
+        # Explicit columns so an empty Schema yields an empty frame WITH headers rather
+        # than a column-less frame that KeyErrors on df["column"].
+        columns=["column", "type", "nullable", "primary_key"],
+    )
+
+
+def column_chart(cp: ColumnProfile) -> ColumnChart:
+    """Build one column's distribution view from its stored aggregates (AD-6, no raw rows)."""
+    lt = cp.logical_type.value
+    summary: dict[str, object] = {
+        "count": cp.count,
+        "null_count": cp.null_count,
+        "distinct_count": cp.distinct_count,
+    }
+    if cp.numeric is not None:
+        n = cp.numeric
+        counts = list(n.histogram_counts)
+        edges = list(n.histogram_bins)
+        if counts and len(edges) == len(counts) + 1:
+            labels = [f"{edges[i]:.4g}–{edges[i + 1]:.4g}" for i in range(len(counts))]
+            # Fall back to bin indices if value labels collide (narrow bins on a large
+            # magnitude round to identical strings), else the bars merge and mislead.
+            if len(set(labels)) != len(labels):
+                labels = [f"bin {i}" for i in range(len(counts))]
+        else:
+            labels = [f"bin {i}" for i in range(len(counts))]
+        data = pd.DataFrame({"bin": labels, "count": counts}).set_index("bin")
+        summary.update({"min": n.min, "max": n.max, "mean": n.mean, "std": n.std})
+        return ColumnChart(cp.name, lt, "histogram", data if counts else None, summary)
+    if cp.categories is not None:
+        data = pd.DataFrame(
+            {"value": [c.value for c in cp.categories], "count": [c.count for c in cp.categories]}
+        ).set_index("value")
+        return ColumnChart(cp.name, lt, "categories", data if len(data) else None, summary)
+    if cp.datetime is not None:
+        d = cp.datetime
+        dow = d.day_of_week_frequency or {}
+        month = d.month_frequency or {}
+        data = (
+            pd.DataFrame({"day": list(dow), "count": list(dow.values())}).set_index("day")
+            if dow
+            else None
+        )
+        extra = (
+            pd.DataFrame({"month": list(month), "count": list(month.values())}).set_index("month")
+            if month
+            else None
+        )
+        summary.update({"min": d.min, "max": d.max})
+        return ColumnChart(cp.name, lt, "datetime", data, summary, extra=extra)
+    if cp.text is not None:
+        t = cp.text
+        summary.update(
+            {"min_length": t.min_length, "max_length": t.max_length, "mean_length": t.mean_length}
+        )
+        return ColumnChart(cp.name, lt, "text", None, summary)
+    return ColumnChart(cp.name, lt, "empty", None, summary)
+
+
+def profile_charts(profile: Profile) -> list[ColumnChart]:
+    """Distribution view for every profiled column, in Schema order."""
+    return [column_chart(cp) for cp in profile.columns]
+
+
 __all__ = [
     "ENGINES",
     "ConnectionResult",
+    "ColumnChart",
     "Config",
     "SourceConfig",
     "default_config",
     "set_connection",
     "connection_summary",
     "test_connection",
+    "run_profile",
+    "schema_table",
+    "column_chart",
+    "profile_charts",
 ]
