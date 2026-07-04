@@ -64,6 +64,8 @@ class _SchemaBreakMutator:
 class MissingFieldMutator(_SchemaBreakMutator):
     """Drop a column from the frame and the Schema."""
 
+    structural = True
+
     name = "missing_field"
 
     def apply(self, dataset: Dataset, *, rng: np.random.Generator) -> tuple[Dataset, FaultManifest]:
@@ -80,6 +82,8 @@ class MissingFieldMutator(_SchemaBreakMutator):
 
 class ExtraFieldMutator(_SchemaBreakMutator):
     """Add an undeclared column to the frame and the Schema."""
+
+    structural = True
 
     name = "extra_field"
     params_model = ExtraFieldParams
@@ -101,6 +105,8 @@ class ExtraFieldMutator(_SchemaBreakMutator):
 class RenamedColumnMutator(_SchemaBreakMutator):
     """Rename a column in the frame and the Schema."""
 
+    structural = True
+
     name = "renamed_column"
 
     def apply(self, dataset: Dataset, *, rng: np.random.Generator) -> tuple[Dataset, FaultManifest]:
@@ -118,6 +124,8 @@ class RenamedColumnMutator(_SchemaBreakMutator):
 
 class ChangedTypeMutator(_SchemaBreakMutator):
     """Change a column's declared logical type (the frame data now mismatches it)."""
+
+    structural = True
 
     name = "changed_type"
 

@@ -10,8 +10,10 @@ from pathlib import Path
 
 import typer
 
+from tymi.chaos.policy import apply_policy
 from tymi.config import load_config
 from tymi.core.errors import (
+    ChaosError,
     ConfigError,
     EngineConnectionError,
     EngineError,
@@ -23,7 +25,13 @@ from tymi.core.errors import (
 )
 from tymi.core.plugins import load_engines
 from tymi.core.rng import make_rng
-from tymi.domain.artifacts import Dataset, fidelity_report_to_json, profile_to_json, schema_to_json
+from tymi.domain.artifacts import (
+    Dataset,
+    fault_manifest_to_json,
+    fidelity_report_to_json,
+    profile_to_json,
+    schema_to_json,
+)
 from tymi.eval.fidelity import fidelity_report
 from tymi.io.exporters import get_exporter
 from tymi.profiling.profile_io import load_profile, save_profile
@@ -41,7 +49,6 @@ app = typer.Typer(
 _NOT_IMPLEMENTED_EXIT = 2
 
 _STUB_COMMANDS = {
-    "chaos": "Generate chaotic data from a Profile.",
     "ui": "Launch the Streamlit web UI.",
 }
 
@@ -424,6 +431,70 @@ def report(
         typer.echo(payload)
     if not result.passed:
         raise typer.Exit(code=1)
+
+
+@app.command(name="chaos")
+def chaos(
+    profile_path: Path = typer.Option(
+        ..., "--profile", "-p", exists=True, dir_okay=False, help="Path to a saved Profile YAML."
+    ),
+    config: Path = typer.Option(
+        ..., "--config", "-c", exists=True, dir_okay=False, help="YAML config with a chaos policy."
+    ),
+    rows: int = typer.Option(1000, "--rows", "-n", min=1, help="Rows to generate before chaos."),
+    seed: int = typer.Option(0, "--seed", "-s", help="Seed for reproducible chaos."),
+    confirm: bool = typer.Option(
+        False, "--confirm", help="Confirm a fully-chaotic run that breaks referential integrity."
+    ),
+    out: Path | None = typer.Option(
+        None, "--out", "-o", dir_okay=False, help="Write the chaotic data CSV to a file."
+    ),
+    manifest_out: Path | None = typer.Option(
+        None, "--manifest", dir_okay=False, help="Write the fault manifest JSON to a file."
+    ),
+) -> None:
+    """Generate faithful data from a Profile, then apply the Config's Chaos Policy.
+
+    In ``mixed`` mode a ``rate`` fraction of rows is corrupted (the rest stay faithful);
+    ``fully_chaotic`` corrupts the whole table and, over a table with foreign keys,
+    requires ``--confirm``. Emits the chaotic data as CSV; ``--manifest`` writes the
+    auditable fault manifest.
+    """
+    try:
+        loaded = load_profile(profile_path)
+    except ProfileError as exc:
+        typer.echo(f"Could not load profile: {exc}")
+        raise typer.Exit(code=1) from None
+    try:
+        cfg = load_config(config)
+    except ConfigError as exc:
+        typer.echo(f"Invalid config: {exc}")
+        raise typer.Exit(code=2) from None
+
+    rng = make_rng(seed if cfg.seed is None else cfg.seed)
+    try:
+        dataset = generate_faithful(loaded, rows=rows, rng=rng)
+        chaotic, manifest = apply_policy(dataset, cfg.chaos, rng=rng, confirmed=confirm)
+    except (ChaosError, GenerationError, LeakageError) as exc:
+        typer.echo(f"Chaos run failed: {exc}")
+        raise typer.Exit(code=1) from None
+
+    if manifest_out is not None:
+        try:
+            Path(manifest_out).write_text(fault_manifest_to_json(manifest) + "\n", encoding="utf-8")
+        except OSError as exc:
+            typer.echo(f"Could not write manifest: {exc}")
+            raise typer.Exit(code=1) from None
+    payload = chaotic.frame.to_csv(index=False)
+    if out is not None:
+        try:
+            Path(out).write_text(payload, encoding="utf-8")
+        except OSError as exc:
+            typer.echo(f"Could not write data: {exc}")
+            raise typer.Exit(code=1) from None
+        typer.echo(f"Wrote {len(chaotic.frame)} rows to {out}; {len(manifest.entries)} faults.")
+    else:
+        typer.echo(payload)
 
 
 if __name__ == "__main__":  # pragma: no cover

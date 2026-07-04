@@ -60,15 +60,30 @@ class GenerationConfig(BaseModel):
     tolerance: float = Field(default=0.9, ge=0.0, le=1.0)
 
 
-class ChaosConfig(BaseModel):
-    """Chaos-policy settings (rate/targeting/mode filled in by Story 3.5)."""
+class MutatorSpec(BaseModel):
+    """One entry in a Chaos Policy chain: a mutator name + its plugin params (AD-5)."""
 
     model_config = _FORBID_EXTRA
 
-    rate: float = Field(default=0.0, ge=0.0, le=1.0)
-    #: Mutators to run, by their ``tymi.mutators`` entry-point name, in order (AD-3).
-    #: The chaos engine resolves + runs exactly these, so the order is significant.
-    mutators: list[str] = Field(default_factory=list)
+    name: str
+    params: dict[str, object] = Field(default_factory=dict)
+
+
+class ChaosConfig(BaseModel):
+    """Declarative Chaos Policy (Story 3.5).
+
+    ``mode`` = ``mixed`` corrupts a ``rate`` fraction of rows (the rest stay faithful);
+    ``fully_chaotic`` corrupts the whole table (and, over a table with foreign keys,
+    needs explicit confirmation — it breaks referential integrity by design). The
+    ordered ``mutators`` chain (name + params) is resolved from the ``tymi.mutators``
+    entry points (AD-3).
+    """
+
+    model_config = _FORBID_EXTRA
+
+    mode: str = Field(default="mixed", pattern="^(mixed|fully_chaotic)$")
+    rate: float = Field(default=0.1, ge=0.0, le=1.0)
+    mutators: list[MutatorSpec] = Field(default_factory=list)
 
 
 class Config(BaseModel):

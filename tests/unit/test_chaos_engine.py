@@ -275,8 +275,10 @@ def test_fault_manifest_to_json_round_trips() -> None:
     assert data["entries"][0] == {"mutator": "a", "row": 0, "column": "x"}
 
 
-def test_chaos_config_accepts_ordered_mutators() -> None:
-    from tymi.config.models import ChaosConfig
+def test_chaos_config_accepts_ordered_mutator_specs() -> None:
+    from tymi.config.models import ChaosConfig, MutatorSpec
 
-    cfg = ChaosConfig(mutators=["a", "b"])
-    assert cfg.mutators == ["a", "b"]
+    cfg = ChaosConfig(mutators=[{"name": "a"}, {"name": "b", "params": {"proportion": 0.2}}])
+    assert [m.name for m in cfg.mutators] == ["a", "b"]
+    assert cfg.mutators[1].params == {"proportion": 0.2}
+    assert isinstance(cfg.mutators[0], MutatorSpec)
