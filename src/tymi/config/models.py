@@ -72,6 +72,21 @@ class MutatorSpec(BaseModel):
     params: dict[str, object] = Field(default_factory=dict)
 
 
+class PrivacyConfig(BaseModel):
+    """Privacy-filter settings over faithful output (Story 4.2)."""
+
+    model_config = _FORBID_EXTRA
+
+    similarity_enabled: bool = False
+    #: Minimum mixed-type normalized distance an output row must keep from any real row.
+    #: Must be > 0: a 0 threshold is a filter-enabled no-op that keeps exact real-record
+    #: copies (every distance is >= 0). Use ``similarity_enabled=False`` to disable.
+    similarity_threshold: float = Field(default=0.1, gt=0.0)
+    outlier_enabled: bool = False
+    #: Drop output rows with a numeric value beyond this many std of its generated column.
+    outlier_threshold: float = Field(default=4.0, gt=0.0)
+
+
 class ChaosConfig(BaseModel):
     """Declarative Chaos Policy (Story 3.5).
 
@@ -99,3 +114,4 @@ class Config(BaseModel):
     source: SourceConfig = Field(default_factory=SourceConfig)
     generation: GenerationConfig = Field(default_factory=GenerationConfig)
     chaos: ChaosConfig = Field(default_factory=ChaosConfig)
+    privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)

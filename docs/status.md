@@ -46,7 +46,7 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 | Story | Scope | Status |
 | --- | --- | --- |
 | 4.1 | **PII / Sensitive-Column auto-classification** — `tymi profile --classify-pii` auto-detects Sensitive Columns from the sample (in-house rules: value validators for email/SSN/IBAN/credit-card[Luhn]/IP/phone + column-name hints, restricted to non-numeric columns so a false positive can't null a numeric column); the detected set unions with `source.sensitive_columns` minus `source.not_sensitive_columns` (explicit mark always wins) and feeds the Story 2.5 `LeakageGuard` + suppression + gate — no raw values stored (AD-6). NER (Presidio/spaCy) deferred for weight; free-text PII is a documented follow-up | ✅ |
-| 4.2 | Privacy Filters (similarity + outlier) | ⬜ |
+| 4.2 | **Privacy Filters (similarity + outlier)** — two `PrivacyFilter`s over faithful output: `SimilarityFilter` drops any row within `threshold` of a real `reference` row (a mixed-type, null-aware, z-scored distance — both-null matches so a memorized copy sharing a null can't slip the gate) and `OutlierFilter` drops tail extremes via a robust median/MAD modified z-score (catches clustered memorized extremes that mean/std self-masks). Both take the real `reference` explicitly (AD-6: the Profile stores no raw values → connected-only), preserve the canonical Schema (AD-10), and are drop-only → deterministic (AD-4/AD-11). Fail-loud: disjoint columns raise (no silent no-op), `threshold <= 0` rejected; pairwise distance computed in row-blocks to bound memory. `PrivacyConfig` toggles + thresholds. Pipeline wiring + residual-risk report → 4.3 | ✅ |
 | 4.3 | Quality & Privacy Report | ⬜ |
 
 ## Epic 5 — Web UI (Streamlit) ⬜
