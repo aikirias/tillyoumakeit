@@ -98,7 +98,7 @@ companions: []
 
 - **Binds:** FR-16, FR-18, FR-25; `eval/`
 - **Prevents:** Evaluate receiving two incompatible input shapes with no discriminator
-- **Rule:** Evaluate consumes `(Dataset, run_mode)`. `run_mode` discriminates: **faithful** → produces the FidelityReport + Quality/Privacy metrics (requires the source Profile); **chaos** → validates/emits the FaultManifest (no SDMetrics fidelity). The orchestrator sets `run_mode`; Evaluate never infers it.
+- **Rule:** Evaluate consumes `(Dataset, run_mode)`. `run_mode` discriminates: **faithful** → produces the FidelityReport + Quality/Privacy metrics (requires the source Profile); **chaos** → validates/emits the FaultManifest (no fidelity report). The orchestrator sets `run_mode`; Evaluate never infers it.
 
 ### Dependency direction
 
@@ -124,7 +124,7 @@ graph TD
 | Naming | `snake_case` modules/functions, `PascalCase` classes; Port interfaces are nouns (`EngineAdapter`, `Exporter`); domain artifacts match Glossary terms exactly (`Profile`, `Dataset`, `ChaosPolicy`, `FaultManifest`, `FidelityReport`). |
 | Data & formats | in-memory dataset = `pandas.DataFrame`; dates ISO-8601; `seed` is an `int`; Profile & Config serialize to YAML/JSON with a `schema_version`; errors are typed `TymiError` subclasses (never bare strings). |
 | State & cross-cutting | artifacts are immutable and passed forward (no in-place mutation across stages); the RNG is threaded, never global; structured logging (`structlog`-style key/values); config via Pydantic only; no auth in MVP (local use). |
-| Testing | `pytest`; unit tests pure-core; integration tests use `testcontainers`; statistical-validation tests assert fidelity via SDMetrics thresholds in CI. |
+| Testing | `pytest`; unit tests pure-core; integration tests use `testcontainers`; statistical-validation tests assert fidelity via in-house metric thresholds (SDMetrics definitions, no package — AD-9) in CI. |
 
 ## Stack
 
@@ -134,7 +134,7 @@ graph TD
 | uv (packaging/deps) | current |
 | pandas · numpy · scipy | current |
 | Faker (formatted values, MIT) | 40.x |
-| ~~SDMetrics (quality + privacy metrics, MIT)~~ — **excluded (Story 2.7)**: the package is MIT but transitively depends on `copulas` (BUSL-1.1), which AD-9 forbids. Its metric *definitions* (KSComplement / TVComplement / CorrelationSimilarity) are reproduced in-house on scipy+numpy, as with the in-house Gaussian copula. | — |
+| ~~SDMetrics (quality + privacy metrics, MIT)~~ — **excluded (Stories 2.7 + 4.3)**: the package is MIT but transitively depends on `copulas` (BUSL-1.1), which AD-9 forbids. Its **fidelity** definitions (KSComplement / TVComplement / CorrelationSimilarity) are reproduced in-house on scipy+numpy (Story 2.7), as with the in-house Gaussian copula. Its **privacy** metrics are likewise reproduced in-house (Story 4.3): a **membership-disclosure** rate computed against the Story 2.5 hashed `LeakageGuard` (keyed digests only, AD-6) and a conservative **attribute-inference** proxy (max Spearman correlation / conditional-mode accuracy on the released data). | — |
 | ~~Presidio Analyzer (PII, MIT)~~ — **deferred (Story 4.1)**: Presidio is MIT (AD-9-fine) but pulls spaCy + a large downloaded language model that a reproducible CI/devcontainer build should not require. MVP PII classification is **rules-based** (regex value validators + column-name hints); Presidio/spaCy NER (free-text person/location detection) is a documented follow-up. This is a **scope decision for weight/reproducibility, not an AD-9 license exclusion** (contrast the SDMetrics→copulas BUSL removal above). | — |
 | SQLAlchemy (core) | 2.0.x |
 | pyodbc (MSSQL) | 5.3.x |
@@ -159,7 +159,7 @@ tymi/
     synth/                  # faithful generator (in-house Gaussian copula on numpy/scipy + faker) + conditional/seeded generation
     chaos/                  # mutator engine + built-in mutators  (entry point: tymi.mutators)
     privacy/                # rules-based PII classifier (NER deferred) + privacy filters (similarity/outlier)
-    eval/                   # SDMetrics quality & privacy report; fidelity report
+    eval/                   # in-house quality & privacy report; fidelity report (AD-9)
     io/                     # exporters (csv/parquet/json/sql) + loaders
     config/                 # Pydantic config models + YAML loader (schema_version)
     cli/                    # Typer app  (driving adapter)

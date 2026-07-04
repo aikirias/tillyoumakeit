@@ -31,10 +31,12 @@ from tymi.domain.artifacts import (
     fidelity_report_to_json,
     manifest_audit_to_json,
     profile_to_json,
+    quality_privacy_report_to_json,
     schema_to_json,
 )
 from tymi.eval.chaos_audit import audit_manifest
 from tymi.eval.fidelity import fidelity_report
+from tymi.eval.privacy_report import quality_privacy_report
 from tymi.io.exporters import get_exporter
 from tymi.profiling.profile_io import load_profile, save_profile
 from tymi.profiling.profiler import profile_dataset
@@ -375,6 +377,11 @@ def report(
     fidelity: bool = typer.Option(
         False, "--fidelity", help="Produce a source-vs-generated fidelity report."
     ),
+    quality_privacy: bool = typer.Option(
+        False,
+        "--quality-privacy",
+        help="Produce a composite Quality Score + membership/attribute privacy metrics.",
+    ),
     data: Path | None = typer.Option(
         None,
         "--data",
@@ -389,22 +396,39 @@ def report(
         "--tolerance",
         min=0.0,
         max=1.0,
-        help="Pass threshold; exit 1 if any score is below it.",
+        help="Quality/fidelity pass threshold; exit 1 if any score is below it.",
+    ),
+    membership_threshold: float = typer.Option(
+        0.0,
+        "--membership-threshold",
+        min=0.0,
+        max=1.0,
+        help="Max tolerated membership-disclosure rate (--quality-privacy); exit 1 above.",
+    ),
+    attribute_threshold: float = typer.Option(
+        1.0,
+        "--attribute-threshold",
+        min=0.0,
+        max=1.0,
+        help="Max tolerated attribute-inference risk (--quality-privacy); exit 1 above.",
     ),
     out: Path | None = typer.Option(
         None, "--out", "-o", dir_okay=False, help="Write the report JSON to a file."
     ),
 ) -> None:
-    """Report source-vs-generated fidelity (KSComplement/TVComplement + correlation).
+    """Report source-vs-generated fidelity, or a composite quality + privacy report.
 
-    Loads a saved Profile **offline** and scores a generated Dataset against the
+    Loads a saved Profile **offline** and evaluates a generated Dataset against the
     distribution the Profile captured. With ``--data`` the Dataset is read from a
     Parquet file; otherwise it is generated from the Profile (``--rows``/``--seed``).
-    Exits **1** when any per-column score or the global metric is below ``--tolerance``
-    (a CI gate), **0** otherwise.
+
+    ``--fidelity`` emits the Story 2.7 KSComplement/TVComplement + correlation report;
+    ``--quality-privacy`` emits a composite Quality Score plus membership and
+    attribute-inference privacy metrics. Exits **1** when a configured CI gate trips
+    (``--tolerance`` / ``--membership-threshold`` / ``--attribute-threshold``).
     """
-    if not fidelity:
-        typer.echo("report currently supports only --fidelity.")
+    if fidelity == quality_privacy:  # neither, or both
+        typer.echo("Pass exactly one of --fidelity or --quality-privacy.")
         raise typer.Exit(code=2)
     try:
         loaded = load_profile(profile_path)
@@ -428,15 +452,28 @@ def report(
             typer.echo(f"Could not generate from profile: {exc}")
             raise typer.Exit(code=1) from None
 
-    result = fidelity_report(loaded, dataset, tolerance=tolerance)
-    payload = fidelity_report_to_json(result)
+    if fidelity:
+        result = fidelity_report(loaded, dataset, tolerance=tolerance)
+        payload = fidelity_report_to_json(result)
+        label = "Fidelity report"
+    else:
+        result = quality_privacy_report(
+            loaded,
+            dataset,
+            tolerance=tolerance,
+            membership_threshold=membership_threshold,
+            attribute_threshold=attribute_threshold,
+        )
+        payload = quality_privacy_report_to_json(result)
+        label = "Quality & privacy report"
+
     if out is not None:
         try:
             Path(out).write_text(payload + "\n", encoding="utf-8")
         except OSError as exc:
             typer.echo(f"Could not write report: {exc}")
             raise typer.Exit(code=1) from None
-        typer.echo(f"Fidelity report written to {out} (passed={result.passed}).")
+        typer.echo(f"{label} written to {out} (passed={result.passed}).")
     else:
         typer.echo(payload)
     if not result.passed:

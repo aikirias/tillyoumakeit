@@ -41,13 +41,13 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 | 3.5 | **Configurable Chaos Policy** (`tymi chaos --profile P --config C`) — a declarative `ChaosConfig` (`mode` mixed/fully_chaotic, `rate`, ordered `mutators` chain with per-mutator params) resolved from the `tymi.mutators` entry points; **mixed** mode corrupts a `rate` fraction of rows (±2 pp, robust to null-bearing targets) and leaves the rest faithful; **fully_chaotic** corrupts the whole table and, over a table with FKs, requires `--confirm` (breaks referential integrity by design). Emits chaotic CSV + optional fault manifest; deterministic | ✅ |
 | 3.6 | **Fault Manifest (bidirectional audit)** — `audit_manifest(baseline, chaotic, manifest)` verifies both directions (every listed fault materialized; every output change vs the faithful baseline is listed), for cell **and** structural faults; `evaluate(dataset, run_mode=…)` dispatches faithful→FidelityReport / chaos→ManifestAudit (AD-12, no fidelity in chaos mode); `tymi chaos --audit` exits 1 if the manifest isn't a faithful record. Deterministic; JSON-exportable | ✅ |
 
-## Epic 4 — Privacy & Evaluation 🚧
+## Epic 4 — Privacy & Evaluation ✅
 
 | Story | Scope | Status |
 | --- | --- | --- |
 | 4.1 | **PII / Sensitive-Column auto-classification** — `tymi profile --classify-pii` auto-detects Sensitive Columns from the sample (in-house rules: value validators for email/SSN/IBAN/credit-card[Luhn]/IP/phone + column-name hints, restricted to non-numeric columns so a false positive can't null a numeric column); the detected set unions with `source.sensitive_columns` minus `source.not_sensitive_columns` (explicit mark always wins) and feeds the Story 2.5 `LeakageGuard` + suppression + gate — no raw values stored (AD-6). NER (Presidio/spaCy) deferred for weight; free-text PII is a documented follow-up | ✅ |
 | 4.2 | **Privacy Filters (similarity + outlier)** — two `PrivacyFilter`s over faithful output: `SimilarityFilter` drops any row within `threshold` of a real `reference` row (a mixed-type, null-aware, z-scored distance — both-null matches so a memorized copy sharing a null can't slip the gate) and `OutlierFilter` drops tail extremes via a robust median/MAD modified z-score (catches clustered memorized extremes that mean/std self-masks). Both take the real `reference` explicitly (AD-6: the Profile stores no raw values → connected-only), preserve the canonical Schema (AD-10), and are drop-only → deterministic (AD-4/AD-11). Fail-loud: disjoint columns raise (no silent no-op), `threshold <= 0` rejected; pairwise distance computed in row-blocks to bound memory. `PrivacyConfig` toggles + thresholds. Pipeline wiring + residual-risk report → 4.3 | ✅ |
-| 4.3 | Quality & Privacy Report | ⬜ |
+| 4.3 | **Quality & Privacy Report** — `tymi report --quality-privacy` emits a composite Quality Score (mean of the Story 2.7 KS/TV/correlation fidelity metrics) plus two in-house privacy metrics (AD-9: no SDMetrics): a **membership-disclosure** rate — the worst sensitive column's share of generated values that exactly reproduce a real source value, checked against the hashed `LeakageGuard` (keyed digests only, AD-6; a gated faithful run scores ~0) — and an **attribute-inference** proxy on the released data (max Spearman ρ / best single-predictor conditional-mode accuracy, with support guards). Deterministic JSON export (`--out`) and three configurable CI gates (`--tolerance` / `--membership-threshold` / `--attribute-threshold`) that fail the build on exit 1 | ✅ |
 
 ## Epic 5 — Web UI (Streamlit) ⬜
 
@@ -96,10 +96,11 @@ Wizard exposing the full connect → profile → configure → preview → expor
   Wiring a multi-table surface into the CLI/pipeline orchestrator lands with the
   export/pipeline stories.
 
-Epics 1–3 are complete (source profiling, faithful synthetic data, and the data
-chaos monkey — pluggable mutators, all fault families, chaos policy, and the
-bidirectional fault-manifest audit). Privacy filters + the quality & privacy report
-(Epic 4) and the Streamlit UI (Epic 5) are designed (see the PRD and architecture
-spine) but not yet implemented — Epic 4 (Privacy & Evaluation) is next. The
-cross-stage pipeline orchestrator (`core/pipeline.py`) and multi-table chaos surface
-remain honestly deferred to the pipeline/UI work.
+Epics 1–4 are complete (source profiling, faithful synthetic data, the data chaos
+monkey — pluggable mutators, all fault families, chaos policy, and the bidirectional
+fault-manifest audit — and privacy & evaluation: PII auto-classification, the
+similarity/outlier privacy filters, and the composite quality & privacy report). The
+Streamlit UI (Epic 5) is designed (see the PRD and architecture spine) but unbuilt —
+Epic 5 is next. The cross-stage pipeline orchestrator (`core/pipeline.py`), the
+generate→privacy-filter wiring, and the multi-table chaos surface remain honestly
+deferred to the pipeline/UI work.

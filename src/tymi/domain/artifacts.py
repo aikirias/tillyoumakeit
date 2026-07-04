@@ -230,6 +230,37 @@ def fidelity_report_to_json(report: FidelityReport) -> str:
 
 
 @dataclass
+class QualityPrivacyReport:
+    """Composite quality + privacy report (Story 4.3).
+
+    ``quality_score`` is a single ``[0, 1]`` composite of the Story 2.7 fidelity metrics
+    (the embedded ``fidelity`` carries the per-column drill-down). ``membership_risk`` is
+    the share of generated sensitive values that exactly reproduce a real source value
+    (via the hashed ``LeakageGuard``, AD-6). ``attribute_inference_risk`` is the strongest
+    per-sensitive-column inference signal (correlation / mode probability) — a
+    conservative proxy. Each privacy metric is ``None`` when not applicable (no sensitive
+    columns). ``passed`` is ``True`` only if the quality score is ``>= quality_tolerance``
+    and each applicable privacy metric is within its threshold; ``failures`` names the
+    gates that tripped.
+    """
+
+    quality_score: float | None = None
+    membership_risk: float | None = None
+    attribute_inference_risk: float | None = None
+    quality_tolerance: float = 0.9
+    membership_threshold: float = 0.0
+    attribute_threshold: float = 1.0
+    passed: bool = True
+    failures: tuple[str, ...] = ()
+    fidelity: FidelityReport | None = None
+
+
+def quality_privacy_report_to_json(report: QualityPrivacyReport) -> str:
+    """Serialize a QualityPrivacyReport to deterministic JSON (exportable, AC-5)."""
+    return json.dumps(asdict(report), indent=2, sort_keys=True, default=str)
+
+
+@dataclass
 class FaultManifest:
     """Auditable record of injected faults (Story 3.1+).
 

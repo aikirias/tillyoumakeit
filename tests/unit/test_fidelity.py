@@ -287,7 +287,7 @@ def test_cli_report_without_fidelity_flag_errors(tmp_path) -> None:
 
     result = CliRunner().invoke(app, ["report", "-p", str(_saved(tmp_path))])
     assert result.exit_code == 2
-    assert "only --fidelity" in result.stdout
+    assert "exactly one of --fidelity or --quality-privacy" in result.stdout
 
 
 def test_cli_report_from_data_parquet_and_out(tmp_path) -> None:
