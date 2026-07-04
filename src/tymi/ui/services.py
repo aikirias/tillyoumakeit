@@ -13,11 +13,12 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from tymi.config.models import Config, ConnectionConfig, SourceConfig
-from tymi.core.errors import EngineConnectionError, TymiError
-from tymi.core.plugins import load_engines
+from tymi.chaos.policy import apply_policy
+from tymi.config.models import ChaosConfig, Config, ConnectionConfig, MutatorSpec, SourceConfig
+from tymi.core.errors import ChaosError, EngineConnectionError, TymiError
+from tymi.core.plugins import load_engines, load_mutators
 from tymi.core.rng import make_rng
-from tymi.domain.artifacts import ColumnProfile, Dataset, Profile, Schema
+from tymi.domain.artifacts import ColumnProfile, Dataset, FaultManifest, Profile, Schema
 from tymi.profiling.profiler import profile_dataset
 from tymi.synth.conditions import parse_conditions
 from tymi.synth.generator import generate_faithful
@@ -355,6 +356,94 @@ def _normalize(counts) -> list[float]:
     return list(arr / total) if total > 0 else list(arr)
 
 
+# --- chaos policy config + preview (Story 5.4) ------------------------------
+
+
+def available_mutators() -> list[str]:
+    """Names of the registered chaos mutators (``tymi.mutators`` entry points, AD-3)."""
+    return sorted(load_mutators())
+
+
+def requires_confirmation(profile: Profile, mode: str) -> bool:
+    """True when a ``fully_chaotic`` run would break referential integrity (FKs present)."""
+    return mode == "fully_chaotic" and bool(profile.schema.foreign_keys)
+
+
+def set_chaos(
+    config: Config,
+    *,
+    mode: str,
+    rate: float,
+    mutators: tuple[str, ...],
+) -> Config:
+    """Write the Chaos Policy back to the shared Config (re-validated, AD-8)."""
+    chaos = ChaosConfig(
+        mode=mode,
+        rate=rate,
+        mutators=[MutatorSpec(name=name) for name in mutators],
+    )
+    updated = config.model_copy(update={"chaos": chaos})
+    return Config.model_validate(updated.model_dump())
+
+
+def run_chaos_preview(
+    profile: Profile,
+    *,
+    rows: int = 1000,
+    seed: int = 0,
+    mode: str = "mixed",
+    rate: float = 0.1,
+    mutators: tuple[str, ...] = (),
+    confirmed: bool = False,
+) -> tuple[Dataset, FaultManifest]:
+    """Generate a faithful baseline and apply the Chaos Policy — the CLI ``chaos`` path."""
+    if rows <= 0:
+        raise ValueError("rows must be > 0.")
+    if seed < 0:
+        raise ValueError("seed must be >= 0.")
+    if requires_confirmation(profile, mode) and not confirmed:
+        raise ChaosError(
+            "fully_chaotic mode over a table with foreign keys breaks referential "
+            "integrity by design; tick the confirmation box to proceed."
+        )
+    chaos = ChaosConfig(
+        mode=mode, rate=rate, mutators=[MutatorSpec(name=name) for name in mutators]
+    )
+    rng = make_rng(seed)
+    baseline = generate_faithful(profile, rows=rows, rng=rng)
+    return apply_policy(baseline, chaos, rng=rng, confirmed=confirmed)
+
+
+def fault_locations(manifest: FaultManifest) -> set[tuple[int, str]]:
+    """The ``(row, column)`` cells the manifest records as corrupted (for highlighting)."""
+    return {
+        (int(e["row"]), str(e["column"]))
+        for e in manifest.entries
+        if "row" in e and "column" in e
+    }
+
+
+#: CSS applied to a corrupted cell in the chaotic preview.
+FAULT_STYLE = "background-color: #ffdddd"
+
+
+def fault_style_frame(
+    frame: pd.DataFrame, manifest: FaultManifest, *, style: str = FAULT_STYLE
+) -> pd.DataFrame:
+    """A same-shaped CSS frame marking the corrupted cells (for a pandas ``Styler``).
+
+    Only cells whose ``(row, column)`` are BOTH in ``frame`` are styled — a structural
+    mutator can rename/drop a column or a fault can reference a row outside the previewed
+    head, and those are silently skipped rather than raising.
+    """
+    styles = pd.DataFrame("", index=frame.index, columns=frame.columns)
+    index_set = set(frame.index)
+    for row, column in fault_locations(manifest):
+        if row in index_set and column in styles.columns:
+            styles.loc[row, column] = style
+    return styles
+
+
 __all__ = [
     "ENGINES",
     "ConnectionResult",
@@ -373,4 +462,11 @@ __all__ = [
     "set_generation",
     "run_generation_preview",
     "generation_comparison",
+    "available_mutators",
+    "requires_confirmation",
+    "set_chaos",
+    "run_chaos_preview",
+    "fault_locations",
+    "fault_style_frame",
+    "FAULT_STYLE",
 ]

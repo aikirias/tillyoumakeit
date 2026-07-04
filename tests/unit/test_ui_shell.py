@@ -175,9 +175,9 @@ def test_app_shell_renders_connection_by_default() -> None:
 
 def test_app_sidebar_navigates_to_placeholder_steps() -> None:
     at = _app_test().run()
-    at.radio[0].set_value("Chaos").run()
+    at.radio[0].set_value("Reports").run()
     assert not at.exception
-    assert any("Story 5.4" in i.value for i in at.info)
+    assert any("Story 5.5" in i.value for i in at.info)
 
 
 def test_app_saves_connection_through_the_form() -> None:
@@ -193,7 +193,7 @@ def test_app_saves_connection_through_the_form() -> None:
 
 
 def test_app_all_placeholder_steps_render() -> None:
-    for step in ("Chaos", "Reports"):  # Profile (5.2) and Generate (5.3) are real pages
+    for step in ("Reports",):  # Profile/Generate/Chaos are real pages (5.2–5.4)
         at = _app_test().run()
         at.radio[0].set_value(step).run()
         assert not at.exception

@@ -18,7 +18,6 @@ from tymi.ui import services
 #: Wizard steps shown in the sidebar. Steps past Connection are filled in 5.2–5.5.
 STEPS = ("Connection", "Profile", "Generate", "Chaos", "Reports")
 _PLACEHOLDER = {
-    "Chaos": "Chaos policy config & preview — Story 5.4.",
     "Reports": "Reports view & export — Story 5.5.",
 }
 
@@ -132,13 +131,18 @@ def render_generate() -> None:
     # Pre-fill from the shared Config so a previous session's choices round-trip (the
     # write-back below is what persists them) — the stored conditions are read here.
     gen = _config().generation
+    # Stable ``key=`` so a config-derived default can't reset the widget on a re-preview
+    # (see render_chaos): the initial value seeds the first render, edits then persist.
     with st.form("generate_form"):
-        rows = st.number_input("Rows", min_value=1, value=int(gen.rows or 1000))
-        seed = st.number_input("Seed", min_value=0, value=int(_config().seed or 0))
-        tolerance = st.slider("Tolerance", min_value=0.0, max_value=1.0, value=float(gen.tolerance))
+        rows = st.number_input("Rows", min_value=1, value=int(gen.rows or 1000), key="gen_rows")
+        seed = st.number_input("Seed", min_value=0, value=int(_config().seed or 0), key="gen_seed")
+        tolerance = st.slider(
+            "Tolerance", min_value=0.0, max_value=1.0, value=float(gen.tolerance), key="gen_tol"
+        )
         conditions_text = st.text_area(
             "Conditions (one per line, e.g. region=LATAM or age in [18,25])",
             value="\n".join(gen.conditions),
+            key="gen_conditions",
         )
         go = st.form_submit_button("Preview")
 
@@ -173,6 +177,71 @@ def render_generate() -> None:
             st.bar_chart(chart.data)
 
 
+def render_chaos() -> None:
+    """Configure a Chaos Policy, preview corrupted rows, and highlight the injected cells."""
+    st.header("Chaos")
+    profile = st.session_state.get("profile")
+    if profile is None:
+        st.info("Profile a table first (the Profile step).")
+        return
+
+    config = _config()
+    policy = config.chaos
+    modes = ["mixed", "fully_chaotic"]
+    # Stable ``key=`` on every config-derived widget: without it, the ``default=`` bound to
+    # the just-written-back policy would reset the un-keyed widget on the next rerun,
+    # silently discarding a changed mutator/rate on a re-preview. With a key, the initial
+    # value seeds the first render and the user's edits then persist in session state.
+    with st.form("chaos_form"):
+        mode = st.selectbox("Mode", modes, index=modes.index(policy.mode), key="chaos_mode")
+        rate = st.slider(
+            "Rate", min_value=0.0, max_value=1.0, value=float(policy.rate), key="chaos_rate"
+        )
+        mutators = st.multiselect(
+            "Mutators",
+            services.available_mutators(),
+            default=[m.name for m in policy.mutators],
+            key="chaos_mutators",
+        )
+        rows = st.number_input("Rows", min_value=1, value=1000, key="chaos_rows")
+        seed = st.number_input("Seed", min_value=0, value=0, key="chaos_seed")
+        confirm = st.checkbox(
+            "Confirm fully-chaotic run that breaks referential integrity (required with FKs)",
+            key="chaos_confirm",
+        )
+        go = st.form_submit_button("Preview")
+
+    if go:
+        st.session_state.pop("chaotic", None)
+        st.session_state.pop("manifest", None)
+        try:
+            chaotic, manifest = services.run_chaos_preview(
+                profile, rows=int(rows), seed=int(seed), mode=mode, rate=float(rate),
+                mutators=tuple(mutators), confirmed=confirm,
+            )
+            st.session_state["chaotic"] = chaotic
+            st.session_state["manifest"] = manifest
+            st.session_state["config"] = services.set_chaos(
+                config, mode=mode, rate=float(rate), mutators=tuple(mutators)
+            )
+            st.success(f"Injected {len(manifest.entries)} faults into {len(chaotic.frame)} rows.")
+        except (ValueError, TymiError) as exc:
+            st.error(f"Could not run chaos: {exc}")
+        except Exception:  # noqa: BLE001 - unexpected chaos error, surface cleanly
+            st.error("Could not run chaos: unexpected error.")
+
+    chaotic = st.session_state.get("chaotic")
+    manifest = st.session_state.get("manifest")
+    if chaotic is not None and manifest is not None:
+        st.subheader("Chaotic sample (corrupted cells highlighted)")
+        head = chaotic.frame.head(20)
+        styled = head.style.apply(
+            lambda _f: services.fault_style_frame(head, manifest), axis=None
+        )
+        st.dataframe(styled)
+        st.caption(f"{len(manifest.entries)} faults recorded in the manifest.")
+
+
 def main() -> None:
     """Render the sidebar wizard and the selected step."""
     st.set_page_config(page_title="TYMI", page_icon="🎲")
@@ -185,6 +254,8 @@ def main() -> None:
         render_profile()
     elif step == "Generate":
         render_generate()
+    elif step == "Chaos":
+        render_chaos()
     else:
         st.header(step)
         st.info(_PLACEHOLDER[step])
