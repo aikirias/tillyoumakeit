@@ -97,4 +97,9 @@ def _colliding_mask(column: pd.Series, digest_set: set[str], salt: str) -> pd.Se
     def _hits(value: object) -> bool:
         return bool(pd.notna(value)) and leakage_digest(value, salt) in digest_set
 
-    return column.map(_hits).astype(bool)
+    # ``astype(object)`` first: mapping a nullable ``Int64`` Series that holds a
+    # ``pd.NA`` upcasts every element to float, so ``100`` would hash as ``"100.0"``
+    # and miss the guard's ``"100"`` digest — a false negative in the gate's core
+    # predicate. Object dtype preserves each scalar's real type (int/float/bool/
+    # Timestamp) with ``pd.NA`` intact, keeping the hash symmetric with profile time.
+    return column.astype(object).map(_hits).astype(bool)

@@ -144,6 +144,23 @@ def test_gate_regenerates_only_colliding_cells() -> None:
     assert all(leakage_digest(v, SALT) not in digest_set for v in col)
 
 
+def test_gate_catches_collision_in_nullable_int_column_with_na() -> None:
+    # Regression: a nullable Int64 column holding a pd.NA must not upcast to float
+    # inside the mask (200 -> "200.0" would miss the guard's "200" digest and leak).
+    frame = pd.DataFrame({"acct": pd.array([200, pd.NA, 300], dtype="Int64")})
+    dataset = _dataset(frame, (Column("acct", LogicalType.INTEGER),))
+    guard = _guard(["200", "300"], column="acct")
+
+    def resample(name: str, count: int, rng) -> list[int]:
+        return [7] * count  # a safe value not in the guard
+
+    out = enforce_leakage_gate(dataset, guard, rng=make_rng(0), resample=resample)
+    col = out.frame["acct"]
+    digest_set = set(guard.columns["acct"])
+    assert all(leakage_digest(v, SALT) not in digest_set for v in col.dropna())
+    assert pd.isna(col.iloc[1])  # the NA cell is preserved, never collides
+
+
 def test_gate_no_op_when_guard_none() -> None:
     frame = pd.DataFrame({"email": ["a@x.com"]})
     dataset = _dataset(frame, (Column("email", LogicalType.STRING),))
