@@ -18,6 +18,7 @@ dependencies = [
     "pyodbc>=5.3",
     "psycopg[binary]>=3.3",
     "pymysql>=1.2",
+    "pyarrow>=24.0.0",
 ]
 
 [project.scripts]

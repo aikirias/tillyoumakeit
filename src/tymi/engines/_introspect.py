@@ -34,6 +34,25 @@ def map_logical_type(sa_type: object) -> LogicalType:
     return LogicalType.STRING
 
 
+#: Inverse of :func:`map_logical_type`: the SQLAlchemy column type used to build a
+#: destination table for each canonical ``LogicalType`` (Story 2.6, AR-10). ``Text``
+#: (unbounded) keeps ``String``/``Categorical`` portable across engines that require a
+#: length on ``VARCHAR``; ``BigInteger`` avoids overflow on wide integer keys.
+_LOGICAL_TO_SQLTYPE = {
+    LogicalType.BOOLEAN: satypes.Boolean,
+    LogicalType.INTEGER: satypes.BigInteger,
+    LogicalType.FLOAT: satypes.Float,
+    LogicalType.DATETIME: satypes.DateTime,
+    LogicalType.STRING: satypes.Text,
+    LogicalType.CATEGORICAL: satypes.Text,
+}
+
+
+def logical_to_sqltype(logical_type: LogicalType) -> satypes.TypeEngine:
+    """Map a canonical ``LogicalType`` to a SQLAlchemy column type for DDL (AR-10)."""
+    return _LOGICAL_TO_SQLTYPE.get(logical_type, satypes.Text)()
+
+
 def _safe(call, default):  # noqa: ANN001, ANN201 - tiny local helper
     """Run a reflection call, returning ``default`` if the dialect can't."""
     try:

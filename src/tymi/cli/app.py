@@ -14,6 +14,8 @@ from tymi.config import load_config
 from tymi.core.errors import (
     ConfigError,
     EngineConnectionError,
+    EngineError,
+    ExportError,
     GenerationError,
     LeakageError,
     ProfileError,
@@ -22,6 +24,7 @@ from tymi.core.errors import (
 from tymi.core.plugins import load_engines
 from tymi.core.rng import make_rng
 from tymi.domain.artifacts import profile_to_json, schema_to_json
+from tymi.io.exporters import get_exporter
 from tymi.profiling.profile_io import load_profile, save_profile
 from tymi.profiling.profiler import profile_dataset
 from tymi.synth.conditions import parse_conditions
@@ -39,7 +42,6 @@ _NOT_IMPLEMENTED_EXIT = 2
 _STUB_COMMANDS = {
     "chaos": "Generate chaotic data from a Profile.",
     "report": "Produce fidelity / quality & privacy reports.",
-    "export": "Export generated data to files or an engine.",
     "ui": "Launch the Streamlit web UI.",
 }
 
@@ -249,13 +251,38 @@ def generate(
         help="Condition a column: 'col=value', 'col in [lo,hi]' or 'col in {a,b,c}' "
         "(repeatable, one per column).",
     ),
+    to: str = typer.Option(
+        "csv", "--to", help="Export target: csv | json | parquet | sql."
+    ),
+    out: Path | None = typer.Option(
+        None, "--out", "-o", dir_okay=False, help="Write the output to this file (files only)."
+    ),
+    engine: str | None = typer.Option(
+        None, "--engine", "-e", help="Destination engine for '--to sql'."
+    ),
+    config: Path | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        exists=True,
+        dir_okay=False,
+        help="Destination config for '--to sql'.",
+    ),
+    table: str | None = typer.Option(
+        None, "--table", "-t", help="Destination table for '--to sql'."
+    ),
 ) -> None:
-    """Generate faithful synthetic data from a saved Profile (offline) as CSV.
+    """Generate faithful synthetic data from a saved Profile (offline) and export it.
 
     The Profile is loaded from a file with no source connection; each column's
     marginal distribution is reproduced and the source's numeric correlations are
     preserved via the in-house Gaussian copula. ``--where`` conditions a column so
     every row satisfies it while the other columns keep their distribution.
+
+    ``--to csv|json|parquet`` writes a file (``--out``; CSV/JSON print to stdout
+    without one), and ``--to sql --engine E --config C --table T`` loads the rows
+    directly into any engine. Exports map from the canonical Schema (AR-10) and are
+    byte-identical for a given Profile + seed (NFR-4).
     """
     try:
         loaded = load_profile(profile_path)
@@ -276,7 +303,51 @@ def generate(
         # out-of-range datetime bound); surface it cleanly instead of a traceback.
         typer.echo(f"Could not generate from profile: {exc}")
         raise typer.Exit(code=1) from None
-    typer.echo(dataset.frame.to_csv(index=False))
+    _export_dataset(dataset, to=to, out=out, engine=engine, config=config, table=table)
+
+
+def _export_dataset(
+    dataset,
+    *,
+    to: str,
+    out: Path | None,
+    engine: str | None,
+    config: Path | None,
+    table: str | None,
+) -> None:
+    """Export a generated Dataset per ``--to`` (file format or a direct SQL load)."""
+    fmt = to.lower()
+    if fmt == "sql":
+        if not (engine and config and table):
+            typer.echo("--to sql requires --engine, --config and --table.")
+            raise typer.Exit(code=2)
+        adapter = _load_adapter(engine, config)
+        try:
+            adapter.load(dataset, table=table)
+        except EngineError as exc:
+            typer.echo(f"Load failed: {exc}")
+            raise typer.Exit(code=1) from None
+        typer.echo(f"Loaded {len(dataset.frame)} rows into {table!r} on {engine!r}.")
+        return
+
+    try:
+        exporter = get_exporter(fmt)
+    except ExportError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=2) from None
+
+    if out is None:
+        if exporter.binary:
+            typer.echo(f"--to {fmt} needs --out (binary format cannot print to stdout).")
+            raise typer.Exit(code=2)
+        typer.echo(exporter.render(dataset))
+        return
+    try:
+        exporter.export(dataset, target=str(out))
+    except ExportError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from None
+    typer.echo(f"Wrote {len(dataset.frame)} rows to {out} ({fmt}).")
 
 
 if __name__ == "__main__":  # pragma: no cover

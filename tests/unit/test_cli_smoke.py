@@ -16,7 +16,6 @@ EXPECTED_COMMANDS = [
     "generate",
     "chaos",
     "report",
-    "export",
     "ui",
 ]
 

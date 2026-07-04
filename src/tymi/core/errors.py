@@ -36,6 +36,10 @@ class LeakageError(TymiError):
     """
 
 
+class ExportError(TymiError):
+    """A Dataset could not be exported (unknown format, unwritable target, …)."""
+
+
 class EngineError(TymiError):
     """A source/destination engine adapter failed."""
 

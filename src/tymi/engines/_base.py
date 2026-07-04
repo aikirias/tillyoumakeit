@@ -16,7 +16,7 @@ import numpy as np
 from sqlalchemy import URL, create_engine, text
 
 from tymi.config.models import ConnectionConfig
-from tymi.core.errors import EngineConnectionError, TableNotFoundError
+from tymi.core.errors import EngineConnectionError, EngineError, TableNotFoundError
 from tymi.domain.artifacts import Dataset, Schema
 
 
@@ -173,7 +173,47 @@ class SqlAlchemyEngineAdapter:
         return Dataset(frame=frame, schema=schema)
 
     def load(self, dataset: Dataset, *, table: str) -> None:
-        raise NotImplementedError("Loading is delivered in Epic 2.")
+        """Create ``table`` from the canonical Schema and insert every row (AR-10).
+
+        Column types are built from ``Schema.logical_type`` (never inferred from the
+        frame's pandas dtypes): a Schema-driven ``dtype=`` map is passed to ``to_sql``.
+        ``if_exists="replace"`` makes the load **idempotent and reproducible** — the
+        destination table is (re)created from the type map on every run, so re-running
+        the same generation yields the same table instead of appending duplicate rows.
+        Works for every engine over the shared SQLAlchemy path (AD-2 write role).
+        """
+        from tymi.engines._introspect import logical_to_sqltype
+        from tymi.io.schema_map import normalize_for_export
+
+        schema_name, table_name = self._split_table(table)
+        url = self.build_url()
+        password = url.password or ""
+        try:
+            # normalize inside the try so a coercion failure is also reported cleanly.
+            frame = normalize_for_export(dataset)
+            dtype_map = {
+                col.name: logical_to_sqltype(col.logical_type)
+                for col in dataset.schema.columns
+                if col.name in frame.columns
+            }
+            engine = create_engine(url)
+            try:
+                with engine.begin() as conn:
+                    frame.to_sql(
+                        table_name,
+                        conn,
+                        schema=schema_name,
+                        if_exists="replace",
+                        index=False,
+                        dtype=dtype_map,
+                    )
+            finally:
+                engine.dispose()
+        except Exception as exc:  # noqa: BLE001 - boundary must never leak the secret
+            detail = _scrub(str(exc), password)
+            raise EngineError(
+                f"Cannot load into {self.DIALECT} at {self._conn.host}:{self._port()}: {detail}"
+            ) from None
 
 
 def _scrub(message: str, secret: str) -> str:
