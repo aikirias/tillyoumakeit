@@ -41,9 +41,13 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 | 3.5 | **Configurable Chaos Policy** (`tymi chaos --profile P --config C`) — a declarative `ChaosConfig` (`mode` mixed/fully_chaotic, `rate`, ordered `mutators` chain with per-mutator params) resolved from the `tymi.mutators` entry points; **mixed** mode corrupts a `rate` fraction of rows (±2 pp, robust to null-bearing targets) and leaves the rest faithful; **fully_chaotic** corrupts the whole table and, over a table with FKs, requires `--confirm` (breaks referential integrity by design). Emits chaotic CSV + optional fault manifest; deterministic | ✅ |
 | 3.6 | **Fault Manifest (bidirectional audit)** — `audit_manifest(baseline, chaotic, manifest)` verifies both directions (every listed fault materialized; every output change vs the faithful baseline is listed), for cell **and** structural faults; `evaluate(dataset, run_mode=…)` dispatches faithful→FidelityReport / chaos→ManifestAudit (AD-12, no fidelity in chaos mode); `tymi chaos --audit` exits 1 if the manifest isn't a faithful record. Deterministic; JSON-exportable | ✅ |
 
-## Epic 4 — Privacy & Evaluation ⬜
+## Epic 4 — Privacy & Evaluation 🚧
 
-PII auto-classification, privacy filters, quality & privacy report.
+| Story | Scope | Status |
+| --- | --- | --- |
+| 4.1 | **PII / Sensitive-Column auto-classification** — `tymi profile --classify-pii` auto-detects Sensitive Columns from the sample (in-house rules: value validators for email/SSN/IBAN/credit-card[Luhn]/IP/phone + column-name hints, restricted to non-numeric columns so a false positive can't null a numeric column); the detected set unions with `source.sensitive_columns` minus `source.not_sensitive_columns` (explicit mark always wins) and feeds the Story 2.5 `LeakageGuard` + suppression + gate — no raw values stored (AD-6). NER (Presidio/spaCy) deferred for weight; free-text PII is a documented follow-up | ✅ |
+| 4.2 | Privacy Filters (similarity + outlier) | ⬜ |
+| 4.3 | Quality & Privacy Report | ⬜ |
 
 ## Epic 5 — Web UI (Streamlit) ⬜
 

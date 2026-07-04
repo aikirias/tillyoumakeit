@@ -26,6 +26,7 @@ from tymi.domain.artifacts import (
     TextStats,
     leakage_digest,
 )
+from tymi.privacy.classifier import classify_sensitive_columns
 from tymi.profiling.correlations import detect_correlations
 
 _QUANTILES = (0.05, 0.25, 0.5, 0.75, 0.95)
@@ -43,6 +44,9 @@ def profile_dataset(
     categorical_threshold: int = 50,
     histogram_bins: int = 10,
     sensitive_columns: Sequence[str] = (),
+    not_sensitive_columns: Sequence[str] = (),
+    classify_pii: bool = False,
+    min_match_rate: float = 0.5,
     salt: str | None = None,
 ) -> Profile:
     """Profile every column of a Dataset according to its logical type.
@@ -51,13 +55,26 @@ def profile_dataset(
     downstream leakage gate can prove no real sensitive value leaks — a declared
     column absent from the table raises :class:`ConfigError`. ``salt`` overrides the
     auto-generated per-Profile nonce (tests pass a fixed value for reproducibility).
+
+    ``classify_pii`` (Story 4.1) auto-detects Sensitive Columns from the sample; the
+    final sensitive set is ``(auto ∪ sensitive_columns) − not_sensitive_columns``, so
+    the config can mark a missed column or unmark a false positive.
     """
     if histogram_bins < 1:
         raise ValueError(f"histogram_bins must be >= 1, got {histogram_bins}")
     frame = dataset.frame
+    detected = (
+        classify_sensitive_columns(dataset, min_match_rate=min_match_rate) if classify_pii else {}
+    )
+    # ``not_sensitive_columns`` only UNMARKS auto-detected false positives — an explicit
+    # ``sensitive_columns`` mark always wins (unmarking it would silently disable a
+    # security control the user deliberately set).
+    excluded = set(not_sensitive_columns) - set(sensitive_columns)
+    kept = [c for c in detected if c not in excluded]
+    combined = list(dict.fromkeys([*kept, *sensitive_columns]))
     # Build the guard first: it validates the declared columns and is the source of
     # truth for which columns must have their raw labels suppressed (AD-6).
-    guard = build_leakage_guard(dataset, sensitive_columns, salt=salt)
+    guard = build_leakage_guard(dataset, combined, salt=salt)
     sensitive = set(guard.columns) if guard is not None else set()
     columns = tuple(
         _profile_column(

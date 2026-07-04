@@ -135,7 +135,7 @@ graph TD
 | pandas · numpy · scipy | current |
 | Faker (formatted values, MIT) | 40.x |
 | ~~SDMetrics (quality + privacy metrics, MIT)~~ — **excluded (Story 2.7)**: the package is MIT but transitively depends on `copulas` (BUSL-1.1), which AD-9 forbids. Its metric *definitions* (KSComplement / TVComplement / CorrelationSimilarity) are reproduced in-house on scipy+numpy, as with the in-house Gaussian copula. | — |
-| Presidio Analyzer (PII, MIT) | 2.2.x |
+| ~~Presidio Analyzer (PII, MIT)~~ — **deferred (Story 4.1)**: Presidio is MIT (AD-9-fine) but pulls spaCy + a large downloaded language model that a reproducible CI/devcontainer build should not require. MVP PII classification is **rules-based** (regex value validators + column-name hints); Presidio/spaCy NER (free-text person/location detection) is a documented follow-up. This is a **scope decision for weight/reproducibility, not an AD-9 license exclusion** (contrast the SDMetrics→copulas BUSL removal above). | — |
 | SQLAlchemy (core) | 2.0.x |
 | pyodbc (MSSQL) | 5.3.x |
 | PyMySQL (MySQL + StarRocks) | 1.2.x |
@@ -158,7 +158,7 @@ tymi/
     profiling/              # per-column profilers + correlation detection
     synth/                  # faithful generator (in-house Gaussian copula on numpy/scipy + faker) + conditional/seeded generation
     chaos/                  # mutator engine + built-in mutators  (entry point: tymi.mutators)
-    privacy/                # Presidio PII classifier + privacy filters (similarity/outlier)
+    privacy/                # rules-based PII classifier (NER deferred) + privacy filters (similarity/outlier)
     eval/                   # SDMetrics quality & privacy report; fidelity report
     io/                     # exporters (csv/parquet/json/sql) + loaders
     config/                 # Pydantic config models + YAML loader (schema_version)

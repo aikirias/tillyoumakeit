@@ -49,6 +49,9 @@ class SourceConfig(BaseModel):
     #: The profiler stores only a hashed membership set of these columns' values
     #: (AD-6/AD-7); the leakage gate checks generated values against it.
     sensitive_columns: list[str] = Field(default_factory=list)
+    #: Columns to UNMARK from PII auto-classification (Story 4.1) — a false positive
+    #: the classifier flagged that the user knows is safe.
+    not_sensitive_columns: list[str] = Field(default_factory=list)
 
 
 class GenerationConfig(BaseModel):

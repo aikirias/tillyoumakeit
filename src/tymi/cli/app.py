@@ -181,6 +181,9 @@ def profile(
         help="Column whose real values must never leak; hashed into the Profile's "
         "leakage guard (repeatable, merged with source.sensitive_columns in config).",
     ),
+    classify_pii: bool = typer.Option(
+        False, "--classify-pii", help="Auto-detect Sensitive Columns from the sample (Story 4.1)."
+    ),
 ) -> None:
     """Sample a table and build its Profile, or load a saved Profile offline.
 
@@ -226,7 +229,12 @@ def profile(
         raise typer.Exit(code=1) from None
 
     try:
-        result = profile_dataset(dataset, sensitive_columns=declared_sensitive)
+        result = profile_dataset(
+            dataset,
+            sensitive_columns=declared_sensitive,
+            not_sensitive_columns=cfg.source.not_sensitive_columns,
+            classify_pii=classify_pii,
+        )
     except ConfigError as exc:
         typer.echo(f"Invalid sensitive columns: {exc}")
         raise typer.Exit(code=1) from None
