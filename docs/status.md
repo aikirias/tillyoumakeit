@@ -30,7 +30,7 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 | 2.6 | **Multi-destination export** — `tymi generate --to csv\|json\|parquet` writes a deterministic (byte-identical, NFR-4), re-importable file mapped from the canonical Schema (AR-10, not raw pandas dtypes); `--to sql --engine/--config/--table` loads the rows directly into any standard-SQL engine via `EngineAdapter.load` (Schema-driven DDL + insert, idempotent). Verified on real PG + MySQL; StarRocks auto-create is a documented exception (needs distribution DDL). Typed errors, no traceback | ✅ |
 | 2.7 | **Fidelity Report** (`tymi report --fidelity`) — per-column **KSComplement** (numeric/datetime, two-sample KS vs a Profile-reconstructed reference) + **TVComplement** (categorical/boolean vs stored frequencies) + a global **CorrelationSimilarity**; scores in `[0,1]`, `--tolerance` gates a CI build (exit 1 on failure) and lists the failing columns; JSON, exportable via `--out`. Metrics computed **in-house** (scipy+numpy) — the SDMetrics package pulls `copulas` (BUSL-1.1), excluded by AD-9. Deterministic; AD-6 (Profile aggregates only) | ✅ |
 
-## Epic 3 — Data Chaos Monkey 🚧
+## Epic 3 — Data Chaos Monkey ✅
 
 | Story | Scope | Status |
 | --- | --- | --- |
@@ -39,7 +39,7 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 | 3.3 | **Format & type violation mutators** — five independently-toggleable fault plugins under `tymi.mutators` on a shared `CellFaultMutator` base: `text_in_numeric`, `invalid_date` (unparsable + out-of-range), `broken_encoding` (corrupt-but-serializable), `oversized_string` (capped 10 MB), `illegal_null` (nulls in non-nullable columns). Each corrupts a proportion of applicable cells (≥1 on small columns), records a bounded manifest entry, preserves the canonical Schema (frame dtype degrades to `object` — that is the fault); targeting by column/type, deterministic, validated params | ✅ |
 | 3.4 | **Schema & constraint breakage mutators** — six structural fault plugins under `tymi.mutators` that mutate the canonical Schema + frame: `missing_field`, `extra_field`, `renamed_column`, `changed_type`, `duplicate_keys` (violates PK/unique, composite-aware), `orphan_fk` (references no real parent). Schema stays internally consistent (columns == frame) — the *contract* is what breaks; deterministic, validated params, targeting by column. Check-constraint violations deferred (no check metadata in the MVP Schema) | ✅ |
 | 3.5 | **Configurable Chaos Policy** (`tymi chaos --profile P --config C`) — a declarative `ChaosConfig` (`mode` mixed/fully_chaotic, `rate`, ordered `mutators` chain with per-mutator params) resolved from the `tymi.mutators` entry points; **mixed** mode corrupts a `rate` fraction of rows (±2 pp, robust to null-bearing targets) and leaves the rest faithful; **fully_chaotic** corrupts the whole table and, over a table with FKs, requires `--confirm` (breaks referential integrity by design). Emits chaotic CSV + optional fault manifest; deterministic | ✅ |
-| 3.6 | Fault Manifest (bidirectional audit) | ⬜ |
+| 3.6 | **Fault Manifest (bidirectional audit)** — `audit_manifest(baseline, chaotic, manifest)` verifies both directions (every listed fault materialized; every output change vs the faithful baseline is listed), for cell **and** structural faults; `evaluate(dataset, run_mode=…)` dispatches faithful→FidelityReport / chaos→ManifestAudit (AD-12, no fidelity in chaos mode); `tymi chaos --audit` exits 1 if the manifest isn't a faithful record. Deterministic; JSON-exportable | ✅ |
 
 ## Epic 4 — Privacy & Evaluation ⬜
 
@@ -92,7 +92,10 @@ Wizard exposing the full connect → profile → configure → preview → expor
   Wiring a multi-table surface into the CLI/pipeline orchestrator lands with the
   export/pipeline stories.
 
-Epic 2 (Faithful Synthetic Data) is complete. Chaos (Epic 3), privacy filters and
-the quality & privacy report (Epic 4), and the Streamlit UI (Epic 5) are designed
-(see the PRD and architecture spine) but not yet implemented — Epic 3 (Data Chaos
-Monkey) is next.
+Epics 1–3 are complete (source profiling, faithful synthetic data, and the data
+chaos monkey — pluggable mutators, all fault families, chaos policy, and the
+bidirectional fault-manifest audit). Privacy filters + the quality & privacy report
+(Epic 4) and the Streamlit UI (Epic 5) are designed (see the PRD and architecture
+spine) but not yet implemented — Epic 4 (Privacy & Evaluation) is next. The
+cross-stage pipeline orchestrator (`core/pipeline.py`) and multi-table chaos surface
+remain honestly deferred to the pipeline/UI work.

@@ -29,9 +29,11 @@ from tymi.domain.artifacts import (
     Dataset,
     fault_manifest_to_json,
     fidelity_report_to_json,
+    manifest_audit_to_json,
     profile_to_json,
     schema_to_json,
 )
+from tymi.eval.chaos_audit import audit_manifest
 from tymi.eval.fidelity import fidelity_report
 from tymi.io.exporters import get_exporter
 from tymi.profiling.profile_io import load_profile, save_profile
@@ -452,6 +454,9 @@ def chaos(
     manifest_out: Path | None = typer.Option(
         None, "--manifest", dir_okay=False, help="Write the fault manifest JSON to a file."
     ),
+    audit: bool = typer.Option(
+        False, "--audit", help="Audit the manifest against the output (exit 1 if not faithful)."
+    ),
 ) -> None:
     """Generate faithful data from a Profile, then apply the Config's Chaos Policy.
 
@@ -479,6 +484,12 @@ def chaos(
         typer.echo(f"Chaos run failed: {exc}")
         raise typer.Exit(code=1) from None
 
+    audit_failed = False
+    if audit:
+        result = audit_manifest(dataset, chaotic, manifest)
+        typer.echo(manifest_audit_to_json(result), err=True)
+        audit_failed = not result.valid
+
     if manifest_out is not None:
         try:
             Path(manifest_out).write_text(fault_manifest_to_json(manifest) + "\n", encoding="utf-8")
@@ -495,6 +506,9 @@ def chaos(
         typer.echo(f"Wrote {len(chaotic.frame)} rows to {out}; {len(manifest.entries)} faults.")
     else:
         typer.echo(payload)
+    if audit_failed:
+        typer.echo("Manifest audit FAILED: the manifest is not a faithful record.", err=True)
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":  # pragma: no cover

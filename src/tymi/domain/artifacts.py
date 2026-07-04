@@ -256,3 +256,24 @@ def merge_fault_manifests(manifests: Iterable[FaultManifest]) -> FaultManifest:
 def fault_manifest_to_json(manifest: FaultManifest) -> str:
     """Serialize a FaultManifest to deterministic JSON."""
     return json.dumps(asdict(manifest), indent=2, default=str)
+
+
+@dataclass
+class ManifestAudit:
+    """Result of the bidirectional Fault Manifest audit (Story 3.6).
+
+    ``valid`` is ``True`` only when every listed fault materialized in the output AND
+    every output change is listed. ``listed_not_present`` describes manifest entries not
+    reflected in the output; ``present_not_listed`` describes output changes with no
+    manifest entry. ``checked`` counts the faults compared.
+    """
+
+    valid: bool = True
+    listed_not_present: tuple[str, ...] = ()
+    present_not_listed: tuple[str, ...] = ()
+    checked: int = 0
+
+
+def manifest_audit_to_json(audit: ManifestAudit) -> str:
+    """Serialize a ManifestAudit to deterministic JSON (exportable)."""
+    return json.dumps(asdict(audit), indent=2, sort_keys=True, default=str)
