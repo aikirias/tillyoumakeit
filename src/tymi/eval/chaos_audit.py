@@ -115,7 +115,15 @@ def _audit_cells(
     # a value fault recorded against such a column is excused here — the frame diff cannot
     # follow the structural change, so counting it would false-fail a legitimate combined
     # chain (rename-then-corrupt, corrupt-then-drop).
-    common = {c for c in baseline.frame.columns if c in chaotic.frame.columns}
+    # Only columns that are UNIQUE by name in both frames are cell-auditable — a
+    # duplicate name makes ``frame[col]`` a DataFrame (the diff would be ambiguous).
+    base_cols = list(baseline.frame.columns)
+    chao_cols = list(chaotic.frame.columns)
+    common = {
+        c
+        for c in base_cols
+        if c in chao_cols and base_cols.count(c) == 1 and chao_cols.count(c) == 1
+    }
     n = min(len(baseline.frame), len(chaotic.frame))
     present: set[tuple[int, str]] = set()
     for col in common:

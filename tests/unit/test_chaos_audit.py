@@ -165,6 +165,39 @@ def test_combined_structural_and_cell_chain_audits_valid(specs) -> None:
     assert audit_manifest(ds, chaotic, manifest).valid
 
 
+def test_duplicate_column_names_do_not_crash_the_audit() -> None:
+    # regression: a malformed chaotic frame with duplicate column names must not crash
+    # the cell diff (frame[col] would be a DataFrame); such columns are skipped.
+    baseline = Dataset(
+        frame=pd.DataFrame({"a": [1, 2], "b": [3, 4]}),
+        schema=Schema(columns=(Column("a", LogicalType.INTEGER), Column("b", LogicalType.INTEGER))),
+    )
+    chaotic = Dataset(
+        frame=pd.DataFrame(np.array([[3, 3], [4, 4]]), columns=["b", "b"]),
+        schema=Schema(columns=(Column("b", LogicalType.INTEGER), Column("b", LogicalType.INTEGER))),
+    )
+    manifest = FaultManifest(
+        entries=[{"fault_type": "renamed_column", "column": "a", "new_name": "b"}]
+    )
+    audit = audit_manifest(baseline, chaotic, manifest)  # no crash
+    assert isinstance(audit, ManifestAudit)
+
+
+def test_chained_text_in_numeric_then_outlier_does_not_crash() -> None:
+    # regression (out-of-scope crash surfaced in 3.6 verification): text_in_numeric then
+    # outlier on the same column must run cleanly through the policy, not raise.
+    ds = _dataset()
+    cfg = ChaosConfig(
+        mode="fully_chaotic",
+        mutators=[
+            MutatorSpec(name="text_in_numeric", params={"columns": ["age"]}),
+            MutatorSpec(name="outlier", params={"columns": ["age"]}),
+        ],
+    )
+    chaotic, manifest = apply_policy(ds, cfg, rng=make_rng(1))  # no crash
+    assert audit_manifest(ds, chaotic, manifest) is not None
+
+
 def test_non_integer_row_is_reported_not_crashed() -> None:
     ds = _dataset()
     manifest = FaultManifest(entries=[{"fault_type": "outlier", "row": "x", "column": "age"}])

@@ -132,6 +132,18 @@ def test_large_integer_column_does_not_overflow() -> None:
     assert out.frame["v"].dtype == "Int64"
 
 
+def test_outlier_skips_column_with_no_numeric_values() -> None:
+    # regression: a column already corrupted to text (e.g. by text_in_numeric earlier in
+    # a chain) has no numeric anchor — outlier must skip it, not crash on min/max of [].
+    ds = Dataset(
+        frame=pd.DataFrame({"age": ["N/A", "oops", "text"]}, dtype=object),
+        schema=Schema(columns=(Column("age", LogicalType.INTEGER),)),
+    )
+    out, manifest = OutlierMutator(proportion=1.0).apply(ds, rng=make_rng(1))
+    assert manifest.entries == []  # nothing numeric to outlier
+    assert out.frame["age"].tolist() == ["N/A", "oops", "text"]
+
+
 def test_nulls_are_preserved_not_overwritten() -> None:
     # regression: outliers replace observed values only; nulls survive.
     ds = Dataset(

@@ -57,13 +57,19 @@ class OutlierMutator:
         entries: list[dict[str, object]] = []
         for name in targets:
             col_type = types[name]
-            # Corrupt only real (non-null) cells: an outlier replaces an observed
-            # value, and nulls are a separate fault family (illegal nulls, Story 3.3).
-            non_null_pos = np.flatnonzero(frame[name].notna().to_numpy())
-            k = cell_count(self.params.proportion, non_null_pos.size)
+            # Corrupt only cells that carry a usable numeric/datetime value: an outlier
+            # replaces an observed value (nulls are a separate fault family), and a
+            # column already corrupted to text by an earlier mutator in the chain has no
+            # numeric anchor — skip it rather than crash computing min/max of nothing.
+            if col_type == LogicalType.DATETIME:
+                usable = pd.to_datetime(frame[name], errors="coerce").notna().to_numpy()
+            else:
+                usable = pd.to_numeric(frame[name], errors="coerce").notna().to_numpy()
+            usable_pos = np.flatnonzero(usable)
+            k = cell_count(self.params.proportion, usable_pos.size)
             if k == 0:
                 continue
-            rows = np.sort(rng.choice(non_null_pos, size=k, replace=False))
+            rows = np.sort(rng.choice(usable_pos, size=k, replace=False))
             values = self._outlier_values(frame[name], col_type, k, rng)
             frame.iloc[rows, frame.columns.get_loc(name)] = values
             fault = "datetime_outlier" if col_type == LogicalType.DATETIME else "numeric_outlier"
