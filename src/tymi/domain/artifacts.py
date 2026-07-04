@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 
@@ -230,6 +231,24 @@ def fidelity_report_to_json(report: FidelityReport) -> str:
 
 @dataclass
 class FaultManifest:
-    """Auditable record of injected faults (skeleton)."""
+    """Auditable record of injected faults (Story 3.1+).
+
+    Each entry describes one corruption a Mutator made — conventionally
+    ``{"mutator", "row", "column", "fault_type", ...}`` — so a downstream Evaluate
+    (chaos run_mode, AD-12) can validate the bidirectional fault contract (Story 3.6).
+    """
 
     entries: list[dict[str, object]] = field(default_factory=list)
+
+
+def merge_fault_manifests(manifests: Iterable[FaultManifest]) -> FaultManifest:
+    """Concatenate manifests into one, preserving order (the chaos chain's order)."""
+    merged: list[dict[str, object]] = []
+    for manifest in manifests:
+        merged.extend(manifest.entries)
+    return FaultManifest(entries=merged)
+
+
+def fault_manifest_to_json(manifest: FaultManifest) -> str:
+    """Serialize a FaultManifest to deterministic JSON."""
+    return json.dumps(asdict(manifest), indent=2, default=str)

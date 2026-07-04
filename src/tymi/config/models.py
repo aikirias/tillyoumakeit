@@ -61,11 +61,14 @@ class GenerationConfig(BaseModel):
 
 
 class ChaosConfig(BaseModel):
-    """Chaos-policy settings (placeholder)."""
+    """Chaos-policy settings (rate/targeting/mode filled in by Story 3.5)."""
 
     model_config = _FORBID_EXTRA
 
     rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    #: Mutators to run, by their ``tymi.mutators`` entry-point name, in order (AD-3).
+    #: The chaos engine resolves + runs exactly these, so the order is significant.
+    mutators: list[str] = Field(default_factory=list)
 
 
 class Config(BaseModel):

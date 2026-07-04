@@ -40,6 +40,11 @@ class ExportError(TymiError):
     """A Dataset could not be exported (unknown format, unwritable target, …)."""
 
 
+class ChaosError(TymiError):
+    """A chaos run cannot proceed (unknown Mutator, a Mutator off its contract, a bad
+    chaos policy, …). Repeating a Mutator in the chain is allowed (faults may stack)."""
+
+
 class EngineError(TymiError):
     """A source/destination engine adapter failed."""
 

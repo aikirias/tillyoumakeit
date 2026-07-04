@@ -30,10 +30,16 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 | 2.6 | **Multi-destination export** — `tymi generate --to csv\|json\|parquet` writes a deterministic (byte-identical, NFR-4), re-importable file mapped from the canonical Schema (AR-10, not raw pandas dtypes); `--to sql --engine/--config/--table` loads the rows directly into any standard-SQL engine via `EngineAdapter.load` (Schema-driven DDL + insert, idempotent). Verified on real PG + MySQL; StarRocks auto-create is a documented exception (needs distribution DDL). Typed errors, no traceback | ✅ |
 | 2.7 | **Fidelity Report** (`tymi report --fidelity`) — per-column **KSComplement** (numeric/datetime, two-sample KS vs a Profile-reconstructed reference) + **TVComplement** (categorical/boolean vs stored frequencies) + a global **CorrelationSimilarity**; scores in `[0,1]`, `--tolerance` gates a CI build (exit 1 on failure) and lists the failing columns; JSON, exportable via `--out`. Metrics computed **in-house** (scipy+numpy) — the SDMetrics package pulls `copulas` (BUSL-1.1), excluded by AD-9. Deterministic; AD-6 (Profile aggregates only) | ✅ |
 
-## Epic 3 — Data Chaos Monkey ⬜
+## Epic 3 — Data Chaos Monkey 🚧
 
-Pluggable mutator engine, out-of-distribution / format-type / schema-constraint
-faults, chaos policy, fault manifest.
+| Story | Scope | Status |
+| --- | --- | --- |
+| 3.1 | **Pluggable Mutator engine** — `chaos/engine.py`: `resolve_mutators` discovers Mutators from the `tymi.mutators` entry-point group by name + order (AD-3, unknown → `ChaosError`); `apply_chaos` runs the chain threading the shared `rng` (AD-4/AD-11) and the mutated Dataset, and merges each Mutator's `FaultManifest`. Off-contract mutator returns / uninstantiable registry entries raise `ChaosError`; the caller's frame is copied (an in-place Mutator can't corrupt it; re-runs idempotent). A new Mutator runs with zero core changes. No fault mutators / no CLI yet | ✅ |
+| 3.2 | Out-of-distribution fault mutators | ⬜ |
+| 3.3 | Format & type violation mutators | ⬜ |
+| 3.4 | Schema & constraint breakage mutators | ⬜ |
+| 3.5 | Configurable Chaos Policy (`tymi chaos`) | ⬜ |
+| 3.6 | Fault Manifest (bidirectional audit) | ⬜ |
 
 ## Epic 4 — Privacy & Evaluation ⬜
 
