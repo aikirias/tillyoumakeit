@@ -124,13 +124,27 @@ def test_datetime_subsecond_is_preserved_in_csv_and_json(tmp_path) -> None:
 
 
 def test_string_column_backed_by_extension_dtype_is_stringified() -> None:
-    # regression (`.where` kept the Int64 dtype so JSON emitted a number).
+    # regression (`.where` kept the Int64 dtype so JSON emitted a number); the
+    # null-bearing case is the important one — mapping a null-bearing Int64 upcasts
+    # to float, so 5 would stringify as "5.0" without the astype(object) guard.
     ds = Dataset(
-        frame=pd.DataFrame({"code": pd.array([5, 3], dtype="Int64")}),
+        frame=pd.DataFrame({"code": pd.array([5, 3, None], dtype="Int64")}),
         schema=Schema(columns=(Column("code", LogicalType.STRING),)),
     )
-    assert normalize_for_export(ds)["code"].tolist() == ["5", "3"]
-    assert '"5"' in JsonExporter().render(ds)
+    out = normalize_for_export(ds)["code"].tolist()
+    assert out[:2] == ["5", "3"] and pd.isna(out[2])  # "5" not "5.0"
+    assert '"5"' in JsonExporter().render(ds) and "5.0" not in JsonExporter().render(ds)
+
+
+def test_integer_out_of_int64_range_becomes_na_not_crash() -> None:
+    # a value too large for the declared INTEGER (int64) type is dropped to NA
+    # rather than crashing the cast (which would escape as a traceback on export).
+    ds = Dataset(
+        frame=pd.DataFrame({"big": [5.0, 1e30, 7.0]}),
+        schema=Schema(columns=(Column("big", LogicalType.INTEGER),)),
+    )
+    out = normalize_for_export(ds)["big"].tolist()
+    assert out[0] == 5 and out[2] == 7 and pd.isna(out[1])
 
 
 def test_get_exporter_unknown_format_raises() -> None:

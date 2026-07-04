@@ -38,9 +38,11 @@ class CsvExporter:
 class JsonExporter:
     """Deterministic JSON — a list of row objects, ISO-8601 datetimes, null for NA.
 
-    ``double_precision=15`` keeps floats faithful (pandas' default of 10 would
-    silently truncate) and ``date_unit="ns"`` preserves sub-second datetimes, so JSON
-    agrees with the CSV/Parquet exporters instead of quietly rounding.
+    ``double_precision=15`` keeps floats near-faithful (pandas' default of 10 would
+    silently truncate to 10 significant digits) — note 15 is pandas' hard cap, one or
+    two digits short of a full 17-significant-digit round-trip, so JSON is marginally
+    lossier than CSV/Parquet for a few values. ``date_unit="ns"`` preserves sub-second
+    datetimes. For an exact float round-trip use CSV or Parquet.
     """
 
     binary = False

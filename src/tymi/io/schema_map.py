@@ -16,6 +16,9 @@ import pandas as pd
 
 from tymi.domain.artifacts import Dataset, LogicalType
 
+_INT64_MAX = np.iinfo("int64").max
+_INT64_MIN = np.iinfo("int64").min
+
 
 def normalize_for_export(dataset: Dataset) -> pd.DataFrame:
     """Return a DataFrame with each column coerced to its ``LogicalType`` (AR-10)."""
@@ -33,9 +36,12 @@ def _coerce(series: pd.Series, logical_type: LogicalType) -> pd.Series:
     if logical_type == LogicalType.INTEGER:
         # Honour the declared INTEGER type (AR-10): round-then-Int64 so a float-backed
         # integer (an int column that carried NULLs and loaded as float64) serializes
-        # as an integer. NA-safe; non-finite (inf) is dropped to NA so it cannot crash
-        # the cast or emit a non-portable literal.
+        # as an integer. NA-safe; non-finite (inf) and values outside the int64 range
+        # are dropped to NA so the cast cannot crash or emit a non-portable literal
+        # (int64 is the widest engine-agnostic integer, so a larger value is
+        # unrepresentable in the declared type).
         numeric = pd.to_numeric(series, errors="coerce").replace([np.inf, -np.inf], np.nan)
+        numeric = numeric.where((numeric >= _INT64_MIN) & (numeric <= _INT64_MAX))
         return numeric.round().astype("Int64")
     if logical_type == LogicalType.FLOAT:
         # inf is not representable in JSON and non-portable in CSV → normalize to NA.
@@ -46,7 +52,8 @@ def _coerce(series: pd.Series, logical_type: LogicalType) -> pd.Series:
         return series.astype("boolean")
     if logical_type == LogicalType.DATETIME:
         return pd.to_datetime(series, errors="coerce")
-    # STRING / CATEGORICAL: object strings, nulls preserved as NA. ``map`` (not
-    # ``where``) so an extension-dtype-backed column is actually stringified rather
-    # than keeping its numeric dtype.
-    return series.map(lambda v: v if pd.isna(v) else str(v)).astype(object)
+    # STRING / CATEGORICAL: object strings, nulls preserved as NA. ``astype(object)``
+    # BEFORE ``map`` so a null-bearing nullable ``Int64`` column is not first upcast to
+    # float (which would stringify ``5`` as ``"5.0"``); object dtype keeps each scalar's
+    # real type with ``pd.NA`` intact.
+    return series.astype(object).map(lambda v: v if pd.isna(v) else str(v))
