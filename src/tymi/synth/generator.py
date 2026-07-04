@@ -22,6 +22,7 @@ from __future__ import annotations
 import numpy as np
 
 from tymi.domain.artifacts import CorrelationMatrix, Dataset, Profile
+from tymi.synth.conditions import Condition, validate_conditions
 from tymi.synth.copula import gaussian_copula_uniforms
 from tymi.synth.faker_values import apply_formatted_values
 from tymi.synth.marginals import synthesize
@@ -41,14 +42,29 @@ class FaithfulSynthesizer:
         return generate_faithful(profile, rows=rows, rng=rng)
 
 
-def generate_faithful(profile: Profile, *, rows: int, rng: np.random.Generator) -> Dataset:
-    """Generate ``rows`` rows preserving marginals and numeric correlation."""
+def generate_faithful(
+    profile: Profile,
+    *,
+    rows: int,
+    rng: np.random.Generator,
+    conditions: dict[str, Condition] | None = None,
+) -> Dataset:
+    """Generate ``rows`` rows preserving marginals and numeric correlation.
+
+    ``conditions`` (Story 2.4) restricts named columns so every row satisfies the
+    given equality / range / membership predicate, while non-conditioned columns
+    keep their distribution. Raises :class:`~tymi.core.errors.GenerationError` if a
+    condition targets an unknown column or the wrong type.
+    """
     if rows < 0:
         raise ValueError(f"rows must be >= 0, got {rows}")
+    conditions = conditions or {}
+    validate_conditions(conditions, profile)
     uniforms = _correlated_uniforms(profile, rows, rng)
-    dataset = synthesize(profile, rows=rows, rng=rng, uniforms=uniforms)
-    # Overlay realistic email/name/phone/uuid values on matching text columns.
-    return apply_formatted_values(dataset, rng=rng)
+    dataset = synthesize(profile, rows=rows, rng=rng, uniforms=uniforms, conditions=conditions)
+    # Overlay realistic email/name/phone/uuid values on matching text columns —
+    # but never on a conditioned column (its values must satisfy the predicate).
+    return apply_formatted_values(dataset, rng=rng, skip=set(conditions))
 
 
 def _correlated_uniforms(

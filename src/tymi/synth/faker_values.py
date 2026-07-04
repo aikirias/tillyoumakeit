@@ -61,16 +61,22 @@ def fake_values(kind: str, rows: int, *, rng: np.random.Generator) -> list[str]:
     return [generate(faker) for _ in range(rows)]
 
 
-def apply_formatted_values(dataset: Dataset, *, rng: np.random.Generator) -> Dataset:
+def apply_formatted_values(
+    dataset: Dataset, *, rng: np.random.Generator, skip: set[str] | None = None
+) -> Dataset:
     """Override formatted text columns of ``dataset`` with realistic Faker values.
 
     Null positions are preserved. Non-text columns and columns whose name does not
-    match a formatted kind are left untouched.
+    match a formatted kind are left untouched. Columns in ``skip`` (e.g. columns
+    pinned by a Story 2.4 condition) are never overridden.
     """
+    skip = skip or set()
     frame = dataset.frame
     type_by_name = {c.name: c.logical_type for c in dataset.schema.columns}
     updates: dict[str, pd.Series] = {}
     for name in frame.columns:
+        if name in skip:
+            continue
         kind = formatted_kind(name)
         # Only override free-text columns so categoricals/numerics stay intact.
         if kind is None or type_by_name.get(name) != LogicalType.STRING:

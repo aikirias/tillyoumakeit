@@ -26,6 +26,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from tymi.core.errors import GenerationError
 from tymi.domain.artifacts import (
     ColumnProfile,
     Dataset,
@@ -35,6 +36,7 @@ from tymi.domain.artifacts import (
     Profile,
     TextStats,
 )
+from tymi.synth.conditions import Condition, Equals, Members
 
 #: Alphabet used to synthesize placeholder free-text content (length-faithful only).
 _TEXT_ALPHABET = np.array(list("abcdefghijklmnopqrstuvwxyz"))
@@ -65,16 +67,22 @@ def synthesize(
     rows: int,
     rng: np.random.Generator,
     uniforms: dict[str, np.ndarray] | None = None,
+    conditions: dict[str, Condition] | None = None,
 ) -> Dataset:
     """Assemble the Dataset column-by-column, optionally injecting driven uniforms.
 
     ``uniforms`` maps a column name to a pre-drawn ``[0, 1]`` vector used for that
     (numeric) column's inverse-CDF — the Gaussian copula supplies correlated
     uniforms here; unmapped columns draw independently.
+
+    ``conditions`` maps a column name to a :class:`~tymi.synth.conditions.Condition`
+    (Story 2.4). A conditioned column is generated under its restriction with **no
+    nulls** so 100% of rows satisfy the predicate; every other column is unchanged.
     """
     if rows < 0:
         raise ValueError(f"rows must be >= 0, got {rows}")
     uniforms = uniforms or {}
+    conditions = conditions or {}
 
     profiles_by_name = {c.name: c for c in profile.columns}
     # Drive column order from the canonical Schema when present, else from the
@@ -85,10 +93,19 @@ def synthesize(
     data = {}
     for name in names:
         cp = profiles_by_name.get(name)
-        data[name] = (
-            _generate_column(cp, rows, rng, uniform=uniforms.get(name))
-            if cp is not None
-            else pd.Series([None] * rows, dtype=object)
+        if cp is None:
+            # A schema column with no profiled statistics cannot be conditioned
+            # (we have no type/stats to restrict it) — fail loudly instead of
+            # silently emitting an all-null column that ignores the condition.
+            if name in conditions:
+                raise GenerationError(
+                    f"cannot apply a condition to column {name!r}: "
+                    "no profiled statistics available for it"
+                )
+            data[name] = pd.Series([None] * rows, dtype=object)
+            continue
+        data[name] = _generate_column(
+            cp, rows, rng, uniform=uniforms.get(name), condition=conditions.get(name)
         )
 
     frame = pd.DataFrame(data, columns=names, index=range(rows))
@@ -112,13 +129,20 @@ def _generate_column(
     rng: np.random.Generator,
     *,
     uniform: np.ndarray | None = None,
+    condition: Condition | None = None,
 ) -> pd.Series:
     """Build one synthetic column as a pandas Series with a Schema-consistent dtype.
 
     ``uniform`` (shape ``(rows,)``, values in ``[0, 1]``) drives the numeric
     inverse-CDF when supplied — the Gaussian copula passes *correlated* uniforms
     here; otherwise the numeric column draws its own independent uniform.
+
+    ``condition`` (Story 2.4) restricts this column's sampler so every row
+    satisfies it; a conditioned column carries **no nulls**.
     """
+    if condition is not None:
+        return _conditioned_column(cp, rows, rng, condition, uniform)
+
     mask = _null_mask(cp, rows, rng)
 
     # Dispatch on the stats actually present (a STRING column may carry either
@@ -141,6 +165,216 @@ def _generate_column(
 
     # No usable stats (all-null column, or numeric column with no finite values).
     return pd.Series([None] * rows, dtype=object)
+
+
+# --- conditioned sampling (Story 2.4) -------------------------------------
+
+
+def _conditioned_column(
+    cp: ColumnProfile,
+    rows: int,
+    rng: np.random.Generator,
+    condition: Condition,
+    uniform: np.ndarray | None,
+) -> pd.Series:
+    """Generate a column restricted by ``condition`` (no nulls, 100% satisfaction)."""
+    if isinstance(condition, Equals):
+        return _constant_column(cp, rows, condition.value)
+    if isinstance(condition, Members):
+        return _members_column(cp, rows, rng, condition.values)
+    return _between_column(cp, rows, rng, condition.low, condition.high, uniform)
+
+
+def _constant_column(cp: ColumnProfile, rows: int, value: str) -> pd.Series:
+    """A length-``rows`` constant column typed by ``cp.logical_type``."""
+    lt = cp.logical_type
+    if lt == LogicalType.INTEGER:
+        return pd.Series(pd.array([_coerce_int(value, cp.name)] * rows, dtype="Int64"))
+    if lt == LogicalType.FLOAT:
+        return pd.Series([_coerce_number(value, cp.name)] * rows, dtype="float64")
+    if lt == LogicalType.BOOLEAN:
+        return pd.Series(pd.array([_coerce_bool(value, cp.name)] * rows, dtype="boolean"))
+    if lt == LogicalType.DATETIME:
+        ts = _coerce_ts(value, cp.name)
+        return _datetime_series(pd.Series([ts] * rows), np.zeros(rows, dtype=bool))
+    return pd.Series(np.array([str(value)] * rows, dtype=object), dtype=object)
+
+
+def _members_column(
+    cp: ColumnProfile, rows: int, rng: np.random.Generator, values: tuple[str, ...]
+) -> pd.Series:
+    """Draw only from ``values`` (renormalized categorical freq when available)."""
+    lt = cp.logical_type
+    if lt == LogicalType.INTEGER:
+        ints = np.array([_coerce_int(v, cp.name) for v in values], dtype="int64")
+        picked = ints[rng.integers(0, ints.size, size=rows)]
+        return pd.Series(pd.array(picked, dtype="Int64"))
+    if lt == LogicalType.FLOAT:
+        nums = np.array([_coerce_number(v, cp.name) for v in values], dtype=float)
+        picked = nums[rng.integers(0, nums.size, size=rows)]
+        return pd.Series(picked, dtype="float64")
+    if lt == LogicalType.BOOLEAN:
+        bools = [_coerce_bool(v, cp.name) for v in values]
+        picked = [bools[i] for i in rng.integers(0, len(bools), size=rows)]
+        return pd.Series(pd.array(picked, dtype="boolean"))
+    if lt == LogicalType.DATETIME:
+        stamps = [_coerce_ts(v, cp.name) for v in values]
+        picked = [stamps[i] for i in rng.integers(0, len(stamps), size=rows)]
+        return _datetime_series(pd.Series(picked), np.zeros(rows, dtype=bool))
+    return _members_categorical(cp, rows, rng, values)
+
+
+def _members_categorical(
+    cp: ColumnProfile, rows: int, rng: np.random.Generator, values: tuple[str, ...]
+) -> pd.Series:
+    """Categorical/text membership: keep the source proportions among allowed labels.
+
+    Uses add-one (Laplace) smoothing so a label the user explicitly requested is
+    still generated even when it is unseen or outside the profiled top-K (a raw
+    proportional weight would floor it to zero); seen labels keep ~their share.
+    """
+    allowed = list(dict.fromkeys(values))  # de-duplicate, preserve order
+    by_value = (
+        {str(c.value): float(c.count) for c in cp.categories} if cp.categories is not None else {}
+    )
+    counts = np.array([by_value.get(str(v), 0.0) for v in allowed], dtype=float)
+    weights = (counts + 1.0) / (counts.sum() + len(allowed))
+    idx = rng.choice(len(allowed), size=rows, p=weights)
+    return pd.Series(np.array([allowed[i] for i in idx], dtype=object), dtype=object)
+
+
+def _between_column(
+    cp: ColumnProfile,
+    rows: int,
+    rng: np.random.Generator,
+    low: str,
+    high: str,
+    uniform: np.ndarray | None,
+) -> pd.Series:
+    """Restrict a numeric/datetime column to an inclusive ``[low, high]`` range."""
+    if cp.logical_type == LogicalType.DATETIME:
+        return _between_datetime(cp, rows, rng, low, high)
+    lo = _coerce_number(low, cp.name)
+    hi = _coerce_number(high, cp.name)
+    if hi < lo:
+        lo, hi = hi, lo
+    u = rng.random(rows) if uniform is None else np.asarray(uniform, dtype=float)
+    stats = cp.numeric
+    if stats is None:
+        values = lo + u * (hi - lo)
+    else:
+        c_lo = _cdf_at(stats, max(lo, stats.min))
+        c_hi = _cdf_at(stats, min(hi, stats.max))
+        if c_hi <= c_lo:
+            # The requested range carries no observed mass (disjoint or a spike at a
+            # single bin edge) → fall back to a uniform across the requested range.
+            values = lo + u * (hi - lo)
+        else:
+            values = numeric_from_uniform(stats, c_lo + u * (c_hi - c_lo))
+    values = np.clip(values, lo, hi)
+    if cp.logical_type == LogicalType.INTEGER:
+        int_lo = np.ceil(lo)
+        int_hi = np.floor(hi)
+        if int_lo > int_hi:
+            raise GenerationError(
+                f"range condition on integer column {cp.name!r} contains no integer: "
+                f"[{low}, {high}]"
+            )
+        ints = np.clip(np.rint(values), int_lo, int_hi).astype("int64")
+        return pd.Series(pd.array(ints, dtype="Int64"))
+    return pd.Series(np.asarray(values, dtype=float), dtype="float64")
+
+
+def _between_datetime(
+    cp: ColumnProfile, rows: int, rng: np.random.Generator, low: str, high: str
+) -> pd.Series:
+    """Uniform datetime sampling across ``[low, high]`` intersected with observed."""
+    lo = _coerce_ts(low, cp.name)
+    hi = _coerce_ts(high, cp.name)
+    if hi < lo:
+        lo, hi = hi, lo
+    stats = cp.datetime
+    s_lo, s_hi = lo, hi
+    if stats is not None and stats.min is not None and stats.max is not None:
+        obs_lo, obs_hi = pd.Timestamp(stats.min), pd.Timestamp(stats.max)
+        clipped_lo, clipped_hi = max(lo, obs_lo), min(hi, obs_hi)
+        if clipped_lo <= clipped_hi:  # keep the intersection; else sample full range
+            s_lo, s_hi = clipped_lo, clipped_hi
+    lo_i, hi_i = pd.Timestamp(s_lo).value, pd.Timestamp(s_hi).value
+    if hi_i <= lo_i:
+        draws = np.full(rows, lo_i, dtype="int64")
+    else:
+        draws = np.clip((lo_i + rng.random(rows) * (hi_i - lo_i)).astype("int64"), lo_i, hi_i)
+    return _datetime_series(pd.to_datetime(draws), np.zeros(rows, dtype=bool))
+
+
+def _cdf_at(stats: NumericStats, x: float) -> float:
+    """Piecewise-linear histogram CDF at ``x`` (exact inverse of ``numeric_from_uniform``)."""
+    edges = np.asarray(stats.histogram_bins, dtype=float)
+    counts = np.asarray(stats.histogram_counts, dtype=float)
+    total = counts.sum()
+    if edges.size < 2 or total <= 0:
+        if stats.max <= stats.min:
+            return 0.0
+        return float(np.clip((x - stats.min) / (stats.max - stats.min), 0.0, 1.0))
+    if x <= edges[0]:
+        return 0.0
+    if x >= edges[-1]:
+        return 1.0
+    probs = counts / total
+    cdf = np.concatenate([[0.0], np.cumsum(probs)])
+    cdf[-1] = 1.0
+    i = int(np.clip(np.searchsorted(edges, x, side="right") - 1, 0, probs.size - 1))
+    span = edges[i + 1] - edges[i]
+    frac = 0.0 if span <= 0 else (x - edges[i]) / span
+    return float(cdf[i] + frac * probs[i])
+
+
+def _coerce_number(value: str, column: str) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise GenerationError(
+            f"condition value {value!r} for column {column!r} is not numeric"
+        ) from None
+
+
+def _coerce_int(value: str, column: str) -> int:
+    """Coerce a condition value to an int, rejecting non-integral input (AC-2)."""
+    number = _coerce_number(value, column)
+    if number != int(number):
+        raise GenerationError(
+            f"condition value {value!r} for integer column {column!r} is not a whole number"
+        )
+    return int(number)
+
+
+_TRUE_LITERALS = frozenset({"true", "1", "t", "yes", "y"})
+_FALSE_LITERALS = frozenset({"false", "0", "f", "no", "n"})
+
+
+def _coerce_bool(value: str, column: str) -> bool:
+    """Coerce a condition value to a bool, rejecting unrecognized literals."""
+    token = str(value).strip().lower()
+    if token in _TRUE_LITERALS:
+        return True
+    if token in _FALSE_LITERALS:
+        return False
+    raise GenerationError(
+        f"condition value {value!r} for boolean column {column!r} is not a boolean"
+    )
+
+
+def _coerce_ts(value: str, column: str) -> pd.Timestamp:
+    try:
+        ts = pd.Timestamp(value)
+    except (TypeError, ValueError):
+        raise GenerationError(
+            f"condition value {value!r} for column {column!r} is not a datetime"
+        ) from None
+    if ts is pd.NaT:
+        raise GenerationError(f"condition value {value!r} for column {column!r} is not a datetime")
+    return ts
 
 
 # --- per-type samplers ----------------------------------------------------

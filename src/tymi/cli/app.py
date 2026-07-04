@@ -14,6 +14,7 @@ from tymi.config import load_config
 from tymi.core.errors import (
     ConfigError,
     EngineConnectionError,
+    GenerationError,
     ProfileError,
     TableNotFoundError,
 )
@@ -22,6 +23,7 @@ from tymi.core.rng import make_rng
 from tymi.domain.artifacts import profile_to_json, schema_to_json
 from tymi.profiling.profile_io import load_profile, save_profile
 from tymi.profiling.profiler import profile_dataset
+from tymi.synth.conditions import parse_conditions
 from tymi.synth.generator import generate_faithful
 
 app = typer.Typer(
@@ -218,12 +220,20 @@ def generate(
     ),
     rows: int = typer.Option(1000, "--rows", "-n", min=1, help="Number of rows to generate."),
     seed: int = typer.Option(0, "--seed", "-s", help="Seed for reproducible generation."),
+    where: list[str] = typer.Option(
+        None,
+        "--where",
+        "-w",
+        help="Condition a column: 'col=value', 'col in [lo,hi]' or 'col in {a,b,c}' "
+        "(repeatable, one per column).",
+    ),
 ) -> None:
     """Generate faithful synthetic data from a saved Profile (offline) as CSV.
 
     The Profile is loaded from a file with no source connection; each column's
     marginal distribution is reproduced and the source's numeric correlations are
-    preserved via the in-house Gaussian copula.
+    preserved via the in-house Gaussian copula. ``--where`` conditions a column so
+    every row satisfies it while the other columns keep their distribution.
     """
     try:
         loaded = load_profile(profile_path)
@@ -231,7 +241,11 @@ def generate(
         typer.echo(f"Could not load profile: {exc}")
         raise typer.Exit(code=1) from None
     try:
-        dataset = generate_faithful(loaded, rows=rows, rng=make_rng(seed))
+        conditions = parse_conditions(where or [])
+        dataset = generate_faithful(loaded, rows=rows, rng=make_rng(seed), conditions=conditions)
+    except GenerationError as exc:
+        typer.echo(f"Invalid condition: {exc}")
+        raise typer.Exit(code=1) from None
     except (ValueError, OverflowError) as exc:
         # A Profile can load yet carry invalid content (e.g. an unparsable or
         # out-of-range datetime bound); surface it cleanly instead of a traceback.
