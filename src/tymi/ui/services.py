@@ -10,14 +10,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 
 from tymi.config.models import Config, ConnectionConfig, SourceConfig
 from tymi.core.errors import EngineConnectionError, TymiError
 from tymi.core.plugins import load_engines
 from tymi.core.rng import make_rng
-from tymi.domain.artifacts import ColumnProfile, Profile, Schema
+from tymi.domain.artifacts import ColumnProfile, Dataset, Profile, Schema
 from tymi.profiling.profiler import profile_dataset
+from tymi.synth.conditions import parse_conditions
+from tymi.synth.generator import generate_faithful
 
 #: Engines selectable in the connection form (the four AD-2 adapters).
 ENGINES = ("mssql", "postgres", "mysql", "starrocks")
@@ -247,10 +250,116 @@ def profile_charts(profile: Profile) -> list[ColumnChart]:
     return [column_chart(cp) for cp in profile.columns]
 
 
+# --- faithful generation config + preview (Story 5.3) -----------------------
+
+
+@dataclass(frozen=True)
+class ComparisonChart:
+    """Per-column source-vs-generated distribution comparison for the preview."""
+
+    name: str
+    logical_type: str
+    data: pd.DataFrame  # index = bin/category, columns = ["source", "generated"]
+
+
+def set_generation(
+    config: Config,
+    *,
+    rows: int,
+    seed: int,
+    tolerance: float,
+    conditions: tuple[str, ...] = (),
+) -> Config:
+    """Write the generation choices back to the shared Config (AD-8).
+
+    Re-validates the whole Config (``model_copy(update=...)`` skips field validators), so a
+    bad ``rows``/``tolerance`` raises here instead of silently persisting a Config that
+    fails its own schema — consistent with ``run_generation_preview``'s guards.
+    """
+    cleaned = [c.strip() for c in conditions if c.strip()]  # drop blank condition lines
+    updated = config.model_copy(
+        update={
+            "generation": config.generation.model_copy(
+                update={"rows": rows, "tolerance": tolerance, "conditions": cleaned}
+            ),
+            "seed": seed,
+        }
+    )
+    return Config.model_validate(updated.model_dump())
+
+
+def run_generation_preview(
+    profile: Profile,
+    *,
+    rows: int = 1000,
+    seed: int = 0,
+    conditions: tuple[str, ...] = (),
+) -> Dataset:
+    """Generate a faithful preview — the same path as the CLI ``generate`` (AD-8)."""
+    if rows <= 0:
+        raise ValueError("rows must be > 0.")
+    if seed < 0:
+        raise ValueError("seed must be >= 0.")
+    parsed = parse_conditions(list(conditions))
+    return generate_faithful(profile, rows=rows, rng=make_rng(seed), conditions=parsed)
+
+
+def generation_comparison(profile: Profile, generated: Dataset) -> list[ComparisonChart]:
+    """Per-column source (Profile aggregates) vs generated (sample) distribution frames."""
+    frame = generated.frame
+    charts: list[ComparisonChart] = []
+    for cp in profile.columns:
+        if cp.name not in frame.columns:
+            continue
+        lt = cp.logical_type.value
+        if cp.numeric is not None and len(cp.numeric.histogram_bins) >= 2:
+            edges = np.asarray(cp.numeric.histogram_bins, dtype=float)
+            src = np.asarray(cp.numeric.histogram_counts, dtype=float)
+            values = pd.to_numeric(frame[cp.name], errors="coerce").to_numpy(dtype=float)
+            values = values[np.isfinite(values)]
+            gen_counts, _ = np.histogram(values, bins=edges)
+            labels = [f"bin {i}" for i in range(len(src))]
+            # Normalize the generated series over the TOTAL generated count (not the in-bin
+            # survivors): values outside the source bin range are dropped by np.histogram,
+            # so this makes them show as missing mass (bars summing to < 1) instead of being
+            # hidden by a renormalize-to-1 that misreads as "generator produced nothing".
+            total = float(len(values))
+            gen_frac = list(gen_counts / total) if total > 0 else [0.0] * len(gen_counts)
+            data = pd.DataFrame(
+                {"source": _normalize(src), "generated": gen_frac}, index=labels
+            )
+            charts.append(ComparisonChart(cp.name, lt, data))
+        elif cp.categories is not None:
+            src_freq = {c.value: float(c.count) for c in cp.categories}
+            gen_freq = {
+                # dropna first so a generated null doesn't become a spurious "nan" category.
+                str(k): float(v)
+                for k, v in frame[cp.name].dropna().astype(str).value_counts().items()
+            }
+            cats = list(dict.fromkeys([*src_freq, *gen_freq]))
+            data = pd.DataFrame(
+                {
+                    "source": _normalize([src_freq.get(c, 0.0) for c in cats]),
+                    "generated": _normalize([gen_freq.get(c, 0.0) for c in cats]),
+                },
+                index=cats,
+            )
+            charts.append(ComparisonChart(cp.name, lt, data))
+    return charts
+
+
+def _normalize(counts) -> list[float]:
+    """Counts → a probability vector (sums to 1), or all-zeros when the total is 0."""
+    arr = np.asarray(list(counts), dtype=float)
+    total = arr.sum()
+    return list(arr / total) if total > 0 else list(arr)
+
+
 __all__ = [
     "ENGINES",
     "ConnectionResult",
     "ColumnChart",
+    "ComparisonChart",
     "Config",
     "SourceConfig",
     "default_config",
@@ -261,4 +370,7 @@ __all__ = [
     "schema_table",
     "column_chart",
     "profile_charts",
+    "set_generation",
+    "run_generation_preview",
+    "generation_comparison",
 ]

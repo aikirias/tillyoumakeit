@@ -18,7 +18,6 @@ from tymi.ui import services
 #: Wizard steps shown in the sidebar. Steps past Connection are filled in 5.2–5.5.
 STEPS = ("Connection", "Profile", "Generate", "Chaos", "Reports")
 _PLACEHOLDER = {
-    "Generate": "Faithful generation config & preview — Story 5.3.",
     "Chaos": "Chaos policy config & preview — Story 5.4.",
     "Reports": "Reports view & export — Story 5.5.",
 }
@@ -122,6 +121,58 @@ def render_profile() -> None:
             st.caption(", ".join(f"{k}={v}" for k, v in chart.summary.items()))
 
 
+def render_generate() -> None:
+    """Configure faithful generation, preview a sample, and compare to the source."""
+    st.header("Generate")
+    profile = st.session_state.get("profile")
+    if profile is None:
+        st.info("Profile a table first (the Profile step).")
+        return
+
+    # Pre-fill from the shared Config so a previous session's choices round-trip (the
+    # write-back below is what persists them) — the stored conditions are read here.
+    gen = _config().generation
+    with st.form("generate_form"):
+        rows = st.number_input("Rows", min_value=1, value=int(gen.rows or 1000))
+        seed = st.number_input("Seed", min_value=0, value=int(_config().seed or 0))
+        tolerance = st.slider("Tolerance", min_value=0.0, max_value=1.0, value=float(gen.tolerance))
+        conditions_text = st.text_area(
+            "Conditions (one per line, e.g. region=LATAM or age in [18,25])",
+            value="\n".join(gen.conditions),
+        )
+        go = st.form_submit_button("Preview")
+
+    if go:
+        conditions = tuple(ln.strip() for ln in conditions_text.splitlines() if ln.strip())
+        config = _config()
+        st.session_state.pop("generated", None)
+        try:
+            dataset = services.run_generation_preview(
+                profile, rows=int(rows), seed=int(seed), conditions=conditions
+            )
+            st.session_state["generated"] = dataset
+            # Write the choices back to the shared Config (AD-8).
+            st.session_state["config"] = services.set_generation(
+                config, rows=int(rows), seed=int(seed), tolerance=float(tolerance),
+                conditions=conditions,
+            )
+            st.success(f"Generated {len(dataset.frame)} rows.")
+        except (ValueError, TymiError) as exc:
+            st.error(f"Could not generate: {exc}")
+        except Exception:  # noqa: BLE001 - unexpected generator error, surface cleanly
+            st.error("Could not generate: unexpected error.")
+
+    dataset = st.session_state.get("generated")
+    if dataset is not None:
+        st.subheader("Preview sample")
+        st.dataframe(dataset.frame.head(20))
+        st.subheader("Source vs generated")
+        st.caption("Numeric and categorical columns only; datetime/text are not compared.")
+        for chart in services.generation_comparison(profile, dataset):
+            st.markdown(f"**{chart.name}** — {chart.logical_type}")
+            st.bar_chart(chart.data)
+
+
 def main() -> None:
     """Render the sidebar wizard and the selected step."""
     st.set_page_config(page_title="TYMI", page_icon="🎲")
@@ -132,6 +183,8 @@ def main() -> None:
         render_connection()
     elif step == "Profile":
         render_profile()
+    elif step == "Generate":
+        render_generate()
     else:
         st.header(step)
         st.info(_PLACEHOLDER[step])

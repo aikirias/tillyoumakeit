@@ -61,6 +61,9 @@ class GenerationConfig(BaseModel):
 
     rows: int | None = Field(default=None, gt=0)
     tolerance: float = Field(default=0.9, ge=0.0, le=1.0)
+    #: Raw ``col=value`` / ``col in [lo,hi]`` / ``col in {a,b,c}`` condition strings
+    #: (Story 2.4); re-parsed by ``parse_conditions`` at generation time.
+    conditions: list[str] = Field(default_factory=list)
 
 
 class MutatorSpec(BaseModel):
