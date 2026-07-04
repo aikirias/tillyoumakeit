@@ -38,6 +38,12 @@ invalid_date = "tymi.chaos.mutators.format_type:InvalidDateMutator"
 broken_encoding = "tymi.chaos.mutators.format_type:BrokenEncodingMutator"
 oversized_string = "tymi.chaos.mutators.format_type:OversizedStringMutator"
 illegal_null = "tymi.chaos.mutators.format_type:IllegalNullMutator"
+missing_field = "tymi.chaos.mutators.schema_break:MissingFieldMutator"
+extra_field = "tymi.chaos.mutators.schema_break:ExtraFieldMutator"
+renamed_column = "tymi.chaos.mutators.schema_break:RenamedColumnMutator"
+changed_type = "tymi.chaos.mutators.schema_break:ChangedTypeMutator"
+duplicate_keys = "tymi.chaos.mutators.schema_break:DuplicateKeysMutator"
+orphan_fk = "tymi.chaos.mutators.schema_break:OrphanFkMutator"
 
 [dependency-groups]
 dev = [

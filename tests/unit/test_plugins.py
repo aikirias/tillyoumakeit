@@ -17,6 +17,12 @@ _EXPECTED_MUTATORS = {
     "broken_encoding",
     "oversized_string",
     "illegal_null",
+    "missing_field",
+    "extra_field",
+    "renamed_column",
+    "changed_type",
+    "duplicate_keys",
+    "orphan_fk",
 }
 
 
