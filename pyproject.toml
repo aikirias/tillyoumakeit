@@ -33,6 +33,11 @@ starrocks = "tymi.engines.starrocks:StarRocksAdapter"
 
 [project.entry-points."tymi.mutators"]
 outlier = "tymi.chaos.mutators.outlier:OutlierMutator"
+text_in_numeric = "tymi.chaos.mutators.format_type:TextInNumericMutator"
+invalid_date = "tymi.chaos.mutators.format_type:InvalidDateMutator"
+broken_encoding = "tymi.chaos.mutators.format_type:BrokenEncodingMutator"
+oversized_string = "tymi.chaos.mutators.format_type:OversizedStringMutator"
+illegal_null = "tymi.chaos.mutators.format_type:IllegalNullMutator"
 
 [dependency-groups]
 dev = [

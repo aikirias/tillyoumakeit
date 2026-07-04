@@ -1,8 +1,8 @@
 """AC-6 (Story 1.1): the plugin registry loads entry-point groups cleanly.
 
 The ``tymi.engines`` group has the engine adapters (asserted in
-``test_engine_registration.py``); ``tymi.mutators`` has the ``outlier`` fault
-mutator since Story 3.2.
+``test_engine_registration.py``); ``tymi.mutators`` has the out-of-distribution
+(Story 3.2) and format/type violation (Story 3.3) fault mutators.
 """
 
 from __future__ import annotations
@@ -10,8 +10,18 @@ from __future__ import annotations
 from tymi.chaos.mutators.outlier import OutlierMutator
 from tymi.core.plugins import load_mutators, load_plugins
 
+_EXPECTED_MUTATORS = {
+    "outlier",
+    "text_in_numeric",
+    "invalid_date",
+    "broken_encoding",
+    "oversized_string",
+    "illegal_null",
+}
 
-def test_outlier_mutator_registered() -> None:
+
+def test_expected_mutators_registered() -> None:
+    assert _EXPECTED_MUTATORS <= set(load_mutators())
     assert load_mutators().get("outlier") is OutlierMutator
 
 

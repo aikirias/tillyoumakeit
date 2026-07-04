@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
 
+from tymi.chaos.mutators._base import cell_count
 from tymi.core.errors import ChaosError
 from tymi.domain.artifacts import Dataset, FaultManifest, LogicalType
 
@@ -59,7 +60,7 @@ class OutlierMutator:
             # Corrupt only real (non-null) cells: an outlier replaces an observed
             # value, and nulls are a separate fault family (illegal nulls, Story 3.3).
             non_null_pos = np.flatnonzero(frame[name].notna().to_numpy())
-            k = round(self.params.proportion * non_null_pos.size)
+            k = cell_count(self.params.proportion, non_null_pos.size)
             if k == 0:
                 continue
             rows = np.sort(rng.choice(non_null_pos, size=k, replace=False))
