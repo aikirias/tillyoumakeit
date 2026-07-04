@@ -18,7 +18,7 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 | 1.7 | **Correlation detection** — pairwise numeric correlation (Spearman) + first-order categorical dependencies (Cramér's V, in-house chi²) attached to the Profile; serializes to valid JSON (undefined → `null`, no raw values, AD-6). Verified on real PG + MySQL | ✅ |
 | 1.8 | **Persistent, versioned Profile** (`tymi profile -o profile.yaml` / `--load`) — YAML save/load round-trip with `schema_version` gating; a loaded Profile is consumed fully **offline** (no source connection). Verified on real PG + MySQL | ✅ |
 
-## Epic 2 — Faithful Synthetic Data 🚧
+## Epic 2 — Faithful Synthetic Data ✅
 
 | Story | Scope | Status |
 | --- | --- | --- |
@@ -28,7 +28,7 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 | 2.4 | **Conditional (seeded) generation** (`tymi generate --where`) — condition a column by equality (`region=LATAM`), inclusive range (`age in [18,25]`) or membership set (`region in {LATAM,EMEA}`); 100% of rows satisfy every condition (no nulls) while non-conditioned columns keep their marginal + copula correlation. Range conditions draw from the histogram truncated to the range (not uniform). Deterministic; typed errors for invalid conditions | ✅ |
 | 2.5 | **Leakage gate over declared sensitive columns** — columns marked sensitive in the Config (or `tymi profile --sensitive`) are hashed (keyed BLAKE2b + per-Profile salt) into a `LeakageGuard` on the Profile with their raw values suppressed (AD-6); `generate_faithful` runs the gate as its terminal core stage — every generated sensitive value is checked against the hashed set and regenerated on collision, failing closed with `LeakageError` if unresolvable. Sensitive `STRING` columns synthesize via Faker/length-text; other sensitive types emit typed null (rich PII synthesis → Epic 4). Deterministic (AD-4/AD-11) | ✅ |
 | 2.6 | **Multi-destination export** — `tymi generate --to csv\|json\|parquet` writes a deterministic (byte-identical, NFR-4), re-importable file mapped from the canonical Schema (AR-10, not raw pandas dtypes); `--to sql --engine/--config/--table` loads the rows directly into any standard-SQL engine via `EngineAdapter.load` (Schema-driven DDL + insert, idempotent). Verified on real PG + MySQL; StarRocks auto-create is a documented exception (needs distribution DDL). Typed errors, no traceback | ✅ |
-| 2.7 | Fidelity Report | ⬜ |
+| 2.7 | **Fidelity Report** (`tymi report --fidelity`) — per-column **KSComplement** (numeric/datetime, two-sample KS vs a Profile-reconstructed reference) + **TVComplement** (categorical/boolean vs stored frequencies) + a global **CorrelationSimilarity**; scores in `[0,1]`, `--tolerance` gates a CI build (exit 1 on failure) and lists the failing columns; JSON, exportable via `--out`. Metrics computed **in-house** (scipy+numpy) — the SDMetrics package pulls `copulas` (BUSL-1.1), excluded by AD-9. Deterministic; AD-6 (Profile aggregates only) | ✅ |
 
 ## Epic 3 — Data Chaos Monkey ⬜
 
@@ -75,11 +75,18 @@ Wizard exposing the full connect → profile → configure → preview → expor
   csv|json|parquet --out FILE` writes a deterministic, re-importable file (mapped
   from the canonical Schema, AR-10), and `--to sql --engine E --config C --table T`
   loads the rows directly into any standard-SQL engine (Story 2.6).
+- `tymi report --fidelity --profile profile.yaml` — a **fidelity report** scoring the
+  generated data against the Profile: per-column KSComplement/TVComplement + a global
+  correlation metric, all in-house (scipy+numpy; no SDMetrics/copulas BUSL, AD-9).
+  `--tolerance` gates a CI build (exit 1 on failure), `--out` exports the JSON, and
+  `--data file.parquet` evaluates an externally-produced dataset (Story 2.7).
 - `generate_related(profiles, rows, rng)` (library) — **multi-table referential
   integrity**: related tables generated parents-before-children with unique PKs and
   valid FKs (incl. junction/self-referential tables). Verified on real PG + MySQL.
   Wiring a multi-table surface into the CLI/pipeline orchestrator lands with the
   export/pipeline stories.
 
-Chaos, privacy filters and evaluation are designed (see the PRD and architecture
-spine) but not yet implemented — Story 2.7 (Fidelity Report) is next.
+Epic 2 (Faithful Synthetic Data) is complete. Chaos (Epic 3), privacy filters and
+the quality & privacy report (Epic 4), and the Streamlit UI (Epic 5) are designed
+(see the PRD and architecture spine) but not yet implemented — Epic 3 (Data Chaos
+Monkey) is next.

@@ -23,7 +23,8 @@ from tymi.core.errors import (
 )
 from tymi.core.plugins import load_engines
 from tymi.core.rng import make_rng
-from tymi.domain.artifacts import profile_to_json, schema_to_json
+from tymi.domain.artifacts import Dataset, fidelity_report_to_json, profile_to_json, schema_to_json
+from tymi.eval.fidelity import fidelity_report
 from tymi.io.exporters import get_exporter
 from tymi.profiling.profile_io import load_profile, save_profile
 from tymi.profiling.profiler import profile_dataset
@@ -41,7 +42,6 @@ _NOT_IMPLEMENTED_EXIT = 2
 
 _STUB_COMMANDS = {
     "chaos": "Generate chaotic data from a Profile.",
-    "report": "Produce fidelity / quality & privacy reports.",
     "ui": "Launch the Streamlit web UI.",
 }
 
@@ -348,6 +348,82 @@ def _export_dataset(
         typer.echo(str(exc))
         raise typer.Exit(code=1) from None
     typer.echo(f"Wrote {len(dataset.frame)} rows to {out} ({fmt}).")
+
+
+@app.command(name="report")
+def report(
+    profile_path: Path = typer.Option(
+        ..., "--profile", "-p", exists=True, dir_okay=False, help="Path to a saved Profile YAML."
+    ),
+    fidelity: bool = typer.Option(
+        False, "--fidelity", help="Produce a source-vs-generated fidelity report."
+    ),
+    data: Path | None = typer.Option(
+        None,
+        "--data",
+        exists=True,
+        dir_okay=False,
+        help="Parquet of a generated Dataset to evaluate (else generate from the Profile).",
+    ),
+    rows: int = typer.Option(1000, "--rows", "-n", min=1, help="Rows to generate when no --data."),
+    seed: int = typer.Option(0, "--seed", "-s", help="Seed for generation when no --data."),
+    tolerance: float = typer.Option(
+        0.9,
+        "--tolerance",
+        min=0.0,
+        max=1.0,
+        help="Pass threshold; exit 1 if any score is below it.",
+    ),
+    out: Path | None = typer.Option(
+        None, "--out", "-o", dir_okay=False, help="Write the report JSON to a file."
+    ),
+) -> None:
+    """Report source-vs-generated fidelity (KSComplement/TVComplement + correlation).
+
+    Loads a saved Profile **offline** and scores a generated Dataset against the
+    distribution the Profile captured. With ``--data`` the Dataset is read from a
+    Parquet file; otherwise it is generated from the Profile (``--rows``/``--seed``).
+    Exits **1** when any per-column score or the global metric is below ``--tolerance``
+    (a CI gate), **0** otherwise.
+    """
+    if not fidelity:
+        typer.echo("report currently supports only --fidelity.")
+        raise typer.Exit(code=2)
+    try:
+        loaded = load_profile(profile_path)
+    except ProfileError as exc:
+        typer.echo(f"Could not load profile: {exc}")
+        raise typer.Exit(code=1) from None
+
+    if data is not None:
+        import pandas as pd
+
+        try:
+            frame = pd.read_parquet(data)
+        except Exception as exc:  # noqa: BLE001 - surface any read failure cleanly
+            typer.echo(f"Could not read data file: {exc}")
+            raise typer.Exit(code=1) from None
+        dataset = Dataset(frame=frame, schema=loaded.schema)
+    else:
+        try:
+            dataset = generate_faithful(loaded, rows=rows, rng=make_rng(seed))
+        except (LeakageError, GenerationError, ValueError, OverflowError) as exc:
+            typer.echo(f"Could not generate from profile: {exc}")
+            raise typer.Exit(code=1) from None
+
+    result = fidelity_report(loaded, dataset, tolerance=tolerance)
+    payload = fidelity_report_to_json(result)
+    if out is not None:
+        try:
+            Path(out).write_text(payload + "\n", encoding="utf-8")
+        except OSError as exc:
+            typer.echo(f"Could not write report: {exc}")
+            raise typer.Exit(code=1) from None
+        typer.echo(f"Fidelity report written to {out} (passed={result.passed}).")
+    else:
+        typer.echo(payload)
+    if not result.passed:
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -206,10 +206,26 @@ class Profile:
 
 @dataclass
 class FidelityReport:
-    """Source-vs-generated similarity/correlation report (skeleton)."""
+    """Source-vs-generated similarity/correlation report (Story 2.7).
+
+    ``per_column`` maps a column to its KSComplement/TVComplement score in ``[0, 1]``;
+    ``global_correlation`` is the CorrelationSimilarity (``None`` when < 2 numeric
+    columns). ``passed`` is ``True`` only if every score and the global metric are
+    ``>= tolerance``; ``failures`` lists the columns (or ``"__correlation__"``) below
+    it. ``skipped`` names columns with no comparable distribution (e.g. free text).
+    """
 
     per_column: dict[str, float] = field(default_factory=dict)
     global_correlation: float | None = None
+    tolerance: float = 0.9
+    passed: bool = True
+    failures: tuple[str, ...] = ()
+    skipped: tuple[str, ...] = ()
+
+
+def fidelity_report_to_json(report: FidelityReport) -> str:
+    """Serialize a FidelityReport to deterministic JSON (exportable, AC-3)."""
+    return json.dumps(asdict(report), indent=2, sort_keys=True, default=str)
 
 
 @dataclass

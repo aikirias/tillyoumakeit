@@ -134,7 +134,7 @@ graph TD
 | uv (packaging/deps) | current |
 | pandas · numpy · scipy | current |
 | Faker (formatted values, MIT) | 40.x |
-| SDMetrics (quality + privacy metrics, MIT) | 0.28.x |
+| ~~SDMetrics (quality + privacy metrics, MIT)~~ — **excluded (Story 2.7)**: the package is MIT but transitively depends on `copulas` (BUSL-1.1), which AD-9 forbids. Its metric *definitions* (KSComplement / TVComplement / CorrelationSimilarity) are reproduced in-house on scipy+numpy, as with the in-house Gaussian copula. | — |
 | Presidio Analyzer (PII, MIT) | 2.2.x |
 | SQLAlchemy (core) | 2.0.x |
 | pyodbc (MSSQL) | 5.3.x |
@@ -196,7 +196,7 @@ flowchart LR
 
 *From the PRD's open questions — adopted with best-practice defaults, all configurable. `[ASSUMPTION]` = confirm/adjust.*
 
-- **Similarity test / Tolerance** `[ASSUMPTION]`: per-column via SDMetrics `KSComplement` (numeric) and `TVComplement` (categorical); a column passes at score ≥ **0.9** (default Tolerance), configurable.
+- **Similarity test / Tolerance** `[ASSUMPTION]`: per-column via the `KSComplement` (numeric, two-sample vs a Profile-reconstructed reference) and `TVComplement` (categorical) metric definitions — computed **in-house** (scipy+numpy), not the SDMetrics package (excluded by AD-9, see Stack); a column passes at score ≥ **0.9** (default Tolerance), configurable (Story 2.7).
 - **Correlation level (MVP)** `[ASSUMPTION]`: pairwise, via an **in-house Gaussian copula** on numpy/scipy (empirical marginal CDF → normal scores → correlation matrix → multivariate-normal sampling → inverse transform). Not the `Copulas` library (BUSL-1.1, excluded by AD-9). Higher-order/vine copulas → Deferred.
 - **Date seasonality (MVP)** `[ASSUMPTION]`: observed range + day-of-week/month frequency only. Full seasonality → Deferred.
 - **Chaos acceptance margin** `[ASSUMPTION]`: default **±2 percentage points** on configured corruption rate, configurable per fault.
