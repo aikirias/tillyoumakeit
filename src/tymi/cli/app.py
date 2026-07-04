@@ -52,9 +52,7 @@ app = typer.Typer(
 
 _NOT_IMPLEMENTED_EXIT = 2
 
-_STUB_COMMANDS = {
-    "ui": "Launch the Streamlit web UI.",
-}
+_STUB_COMMANDS: dict[str, str] = {}
 
 _ENGINE_OPTION = typer.Option(..., "--engine", "-e", help="Engine name, e.g. 'postgres'.")
 _CONFIG_OPTION = typer.Option(
@@ -73,6 +71,16 @@ def _make_stub(command: str, summary: str):
 
 for _name, _summary in _STUB_COMMANDS.items():
     app.command(name=_name)(_make_stub(_name, _summary))
+
+
+@app.command(name="ui")
+def ui(
+    port: int = typer.Option(8501, "--port", "-p", min=1, max=65535, help="Port to serve on."),
+) -> None:
+    """Launch the Streamlit web UI (runs the core library in-process, no separate API)."""
+    from tymi.ui.launch import launch_ui
+
+    raise typer.Exit(code=launch_ui(port=port))
 
 
 def _load_adapter(engine: str, config: Path):

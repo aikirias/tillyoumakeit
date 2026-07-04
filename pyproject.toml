@@ -19,6 +19,7 @@ dependencies = [
     "psycopg[binary]>=3.3",
     "pymysql>=1.2",
     "pyarrow>=24.0.0",
+    "streamlit>=1.40",
 ]
 
 [project.scripts]

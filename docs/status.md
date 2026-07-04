@@ -49,9 +49,17 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 | 4.2 | **Privacy Filters (similarity + outlier)** — two `PrivacyFilter`s over faithful output: `SimilarityFilter` drops any row within `threshold` of a real `reference` row (a mixed-type, null-aware, z-scored distance — both-null matches so a memorized copy sharing a null can't slip the gate) and `OutlierFilter` drops tail extremes via a robust median/MAD modified z-score (catches clustered memorized extremes that mean/std self-masks). Both take the real `reference` explicitly (AD-6: the Profile stores no raw values → connected-only), preserve the canonical Schema (AD-10), and are drop-only → deterministic (AD-4/AD-11). Fail-loud: disjoint columns raise (no silent no-op), `threshold <= 0` rejected; pairwise distance computed in row-blocks to bound memory. `PrivacyConfig` toggles + thresholds. Pipeline wiring + residual-risk report → 4.3 | ✅ |
 | 4.3 | **Quality & Privacy Report** — `tymi report --quality-privacy` emits a composite Quality Score (mean of the Story 2.7 KS/TV/correlation fidelity metrics) plus two in-house privacy metrics (AD-9: no SDMetrics): a **membership-disclosure** rate — the worst sensitive column's share of generated values that exactly reproduce a real source value, checked against the hashed `LeakageGuard` (keyed digests only, AD-6; a gated faithful run scores ~0) — and an **attribute-inference** proxy on the released data (max Spearman ρ / best single-predictor conditional-mode accuracy, with support guards). Deterministic JSON export (`--out`) and three configurable CI gates (`--tolerance` / `--membership-threshold` / `--attribute-threshold`) that fail the build on exit 1 | ✅ |
 
-## Epic 5 — Web UI (Streamlit) ⬜
+## Epic 5 — Web UI (Streamlit) 🚧
 
 Wizard exposing the full connect → profile → configure → preview → export flow.
+
+| Story | Scope | Status |
+| --- | --- | --- |
+| 5.1 | **App shell + connection management** — `tymi ui` launches an in-process Streamlit wizard (driving adapter beside the CLI, no REST — AD-8); a sidebar walks Connection → Profile → Generate → Chaos → Reports. The Connection page builds/tests an engine adapter in-process and writes the connection into the one shared Pydantic `Config` (the same artifact the CLI loads). Credentials are never entered or shown — only the *names* of the env vars holding them (NFR-6). Logic lives in a pure `services.py` (engine registry injectable); the view is a thin `app.py` driven in tests by `streamlit.testing.v1.AppTest` | ✅ |
+| 5.2 | Profile & schema explorer | ⬜ |
+| 5.3 | Faithful generation config + preview | ⬜ |
+| 5.4 | Chaos policy config + preview | ⬜ |
+| 5.5 | Reports view + export | ⬜ |
 
 ## What works today
 

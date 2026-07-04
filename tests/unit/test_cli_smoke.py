@@ -27,7 +27,9 @@ def test_help_exits_zero_and_lists_commands() -> None:
         assert command in result.output
 
 
-def test_stub_command_exits_nonzero() -> None:
-    result = runner.invoke(app, ["ui"])
-    assert result.exit_code == 2
-    assert "not implemented" in result.output
+def test_ui_is_a_real_command_not_a_stub() -> None:
+    # `ui` launches Streamlit (Story 5.1); --help must not spawn the server.
+    result = runner.invoke(app, ["ui", "--help"])
+    assert result.exit_code == 0
+    assert "not implemented" not in result.output
+    assert "Streamlit" in result.output
