@@ -35,7 +35,7 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 | Story | Scope | Status |
 | --- | --- | --- |
 | 3.1 | **Pluggable Mutator engine** — `chaos/engine.py`: `resolve_mutators` discovers Mutators from the `tymi.mutators` entry-point group by name + order (AD-3, unknown → `ChaosError`); `apply_chaos` runs the chain threading the shared `rng` (AD-4/AD-11) and the mutated Dataset, and merges each Mutator's `FaultManifest`. Off-contract mutator returns / uninstantiable registry entries raise `ChaosError`; the caller's frame is copied (an in-place Mutator can't corrupt it; re-runs idempotent). A new Mutator runs with zero core changes. No fault mutators / no CLI yet | ✅ |
-| 3.2 | Out-of-distribution fault mutators | ⬜ |
+| 3.2 | **Out-of-distribution fault mutators** — `OutlierMutator` (registered under `tymi.mutators`) injects out-of-range values (`max + magnitude·span` / `min − magnitude·span`) into a configurable proportion of numeric/datetime cells; targeting by column or type (default all numeric/datetime), non-numeric target → `ChaosError`; integers stay strictly out-of-range + int64-clipped (no overflow), nulls preserved, exact `round(proportion·n)` per column (±2 pp margin). Each injection recorded in the `FaultManifest`. Deterministic; validated Pydantic params (AD-5); runs via the 3.1 engine with zero core change | ✅ |
 | 3.3 | Format & type violation mutators | ⬜ |
 | 3.4 | Schema & constraint breakage mutators | ⬜ |
 | 3.5 | Configurable Chaos Policy (`tymi chaos`) | ⬜ |
