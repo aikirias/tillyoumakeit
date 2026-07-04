@@ -15,6 +15,7 @@ from tymi.core.errors import (
     ConfigError,
     EngineConnectionError,
     GenerationError,
+    LeakageError,
     ProfileError,
     TableNotFoundError,
 )
@@ -163,16 +164,29 @@ def profile(
         dir_okay=False,
         help="Load and print a saved Profile YAML offline (no DB connection).",
     ),
+    sensitive: list[str] = typer.Option(
+        None,
+        "--sensitive",
+        help="Column whose real values must never leak; hashed into the Profile's "
+        "leakage guard (repeatable, merged with source.sensitive_columns in config).",
+    ),
 ) -> None:
     """Sample a table and build its Profile, or load a saved Profile offline.
 
     With ``--load`` the Profile is read from a file and printed with no source
     connection. Otherwise a table is sampled and profiled; ``-o`` saves the
-    Profile to YAML instead of printing JSON.
+    Profile to YAML instead of printing JSON. ``--sensitive`` columns are hashed
+    into a leakage guard so the generator can prove no real value leaks (Story 2.5).
     """
     if load is not None:
         if out is not None:
             typer.echo("--out cannot be combined with --load.")
+            raise typer.Exit(code=2)
+        if sensitive:
+            typer.echo(
+                "--sensitive cannot be combined with --load "
+                "(the guard is built at profile time)."
+            )
             raise typer.Exit(code=2)
         try:
             loaded = load_profile(load)
@@ -187,6 +201,10 @@ def profile(
         raise typer.Exit(code=2)
 
     adapter = _load_adapter(engine, config)
+    # _load_adapter already validated the config loads; re-read it for the
+    # declared sensitive columns and merge (union, order-preserving) with --sensitive.
+    cfg = load_config(config)
+    declared_sensitive = list(dict.fromkeys([*(sensitive or []), *cfg.source.sensitive_columns]))
     try:
         dataset = adapter.sample(table, rows=rows, rng=make_rng(seed))
     except TableNotFoundError as exc:
@@ -196,7 +214,11 @@ def profile(
         typer.echo(f"Connection failed: {exc}")
         raise typer.Exit(code=1) from None
 
-    result = profile_dataset(dataset)
+    try:
+        result = profile_dataset(dataset, sensitive_columns=declared_sensitive)
+    except ConfigError as exc:
+        typer.echo(f"Invalid sensitive columns: {exc}")
+        raise typer.Exit(code=1) from None
     if out is not None:
         try:
             save_profile(result, out)
@@ -243,6 +265,9 @@ def generate(
     try:
         conditions = parse_conditions(where or [])
         dataset = generate_faithful(loaded, rows=rows, rng=make_rng(seed), conditions=conditions)
+    except LeakageError as exc:
+        typer.echo(f"Leakage gate failed closed: {exc}")
+        raise typer.Exit(code=1) from None
     except GenerationError as exc:
         typer.echo(f"Invalid condition: {exc}")
         raise typer.Exit(code=1) from None

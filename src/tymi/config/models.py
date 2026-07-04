@@ -45,6 +45,10 @@ class SourceConfig(BaseModel):
     engine: str | None = None
     table: str | None = None
     connection: ConnectionConfig | None = None
+    #: Columns whose real values must never leak into faithful output (AR-7).
+    #: The profiler stores only a hashed membership set of these columns' values
+    #: (AD-6/AD-7); the leakage gate checks generated values against it.
+    sensitive_columns: list[str] = Field(default_factory=list)
 
 
 class GenerationConfig(BaseModel):

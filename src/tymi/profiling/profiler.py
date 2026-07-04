@@ -7,18 +7,24 @@ category labels (documented assumption), and free-text length stats only.
 
 from __future__ import annotations
 
+import secrets
+from collections.abc import Sequence
+
 import numpy as np
 import pandas as pd
 
+from tymi.core.errors import ConfigError
 from tymi.domain.artifacts import (
     CategoryFrequency,
     ColumnProfile,
     Dataset,
     DatetimeStats,
+    LeakageGuard,
     LogicalType,
     NumericStats,
     Profile,
     TextStats,
+    leakage_digest,
 )
 from tymi.profiling.correlations import detect_correlations
 
@@ -36,11 +42,23 @@ def profile_dataset(
     top_k: int = 20,
     categorical_threshold: int = 50,
     histogram_bins: int = 10,
+    sensitive_columns: Sequence[str] = (),
+    salt: str | None = None,
 ) -> Profile:
-    """Profile every column of a Dataset according to its logical type."""
+    """Profile every column of a Dataset according to its logical type.
+
+    ``sensitive_columns`` (Story 2.5) are hashed into a :class:`LeakageGuard` so the
+    downstream leakage gate can prove no real sensitive value leaks — a declared
+    column absent from the table raises :class:`ConfigError`. ``salt`` overrides the
+    auto-generated per-Profile nonce (tests pass a fixed value for reproducibility).
+    """
     if histogram_bins < 1:
         raise ValueError(f"histogram_bins must be >= 1, got {histogram_bins}")
     frame = dataset.frame
+    # Build the guard first: it validates the declared columns and is the source of
+    # truth for which columns must have their raw labels suppressed (AD-6).
+    guard = build_leakage_guard(dataset, sensitive_columns, salt=salt)
+    sensitive = set(guard.columns) if guard is not None else set()
     columns = tuple(
         _profile_column(
             frame[col.name],
@@ -49,6 +67,7 @@ def profile_dataset(
             top_k=top_k,
             categorical_threshold=categorical_threshold,
             histogram_bins=histogram_bins,
+            is_sensitive=col.name in sensitive,
         )
         for col in dataset.schema.columns
     )
@@ -60,7 +79,40 @@ def profile_dataset(
         row_count=int(len(frame)),
         columns=columns,
         correlations=correlations,
+        leakage_guard=guard,
     )
+
+
+def build_leakage_guard(
+    dataset: Dataset, sensitive_columns: Sequence[str], *, salt: str | None = None
+) -> LeakageGuard | None:
+    """Hash each declared sensitive column's distinct real values (AD-6/AD-7).
+
+    Returns ``None`` when no sensitive columns are declared. Each column must exist
+    in the Schema (else :class:`ConfigError`); only its distinct non-null values are
+    hashed with :func:`leakage_digest`, so the guard is a membership set carrying no
+    raw values. ``salt`` defaults to a fresh per-Profile security nonce.
+    """
+    requested = list(dict.fromkeys(sensitive_columns))  # de-dup, keep order
+    if not requested:
+        return None
+    known = set(dataset.schema.names())
+    unknown = [c for c in requested if c not in known]
+    if unknown:
+        raise ConfigError(
+            f"sensitive column(s) not found in the source table: {unknown}"
+        )
+    resolved_salt = salt if salt is not None else secrets.token_hex(16)
+    frame = dataset.frame
+    # Hash the raw non-null values (not a pre-stringified column): ``leakage_digest``
+    # applies ``str()`` per element, exactly as the gate does when it hashes a
+    # generated value. Pre-``.astype(str)`` here would diverge for datetimes
+    # ("2020-06-15" vs "2020-06-15 00:00:00") and silently miss a real leak.
+    columns = {
+        name: tuple(sorted({leakage_digest(v, resolved_salt) for v in frame[name].dropna()}))
+        for name in requested
+    }
+    return LeakageGuard(salt=resolved_salt, columns=columns)
 
 
 def _profile_column(
@@ -71,6 +123,7 @@ def _profile_column(
     top_k: int,
     categorical_threshold: int,
     histogram_bins: int,
+    is_sensitive: bool = False,
 ) -> ColumnProfile:
     non_null = series.dropna()
     count = int(non_null.shape[0])
@@ -84,6 +137,18 @@ def _profile_column(
         "distinct_count": distinct_count,
     }
     if count == 0:
+        return ColumnProfile(**base)
+
+    # A sensitive column must never persist its real values anywhere in the Profile
+    # (AD-6 escalated): not category labels, and not numeric/datetime min/max/quantiles
+    # (order statistics ARE two real row values). A free-text STRING keeps length stats
+    # only so generation still yields typed synthetic/Faker strings; every other type
+    # keeps counts only → a typed null column. Faithful synthesis of sensitive numbers,
+    # dates and labels is deferred to Epic 4; the output leakage gate (AD-7) already
+    # guarantees no real value is emitted for any type.
+    if is_sensitive:
+        if logical_type == LogicalType.STRING:
+            return ColumnProfile(**base, text=_text_stats(non_null))
         return ColumnProfile(**base)
 
     if logical_type in (LogicalType.INTEGER, LogicalType.FLOAT):

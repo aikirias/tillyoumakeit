@@ -33,6 +33,7 @@ from tymi.domain.artifacts import (
     DatetimeStats,
     ForeignKey,
     Index,
+    LeakageGuard,
     LogicalType,
     NumericStats,
     Profile,
@@ -101,6 +102,21 @@ def _profile_from_dict(data: dict[str, Any], schema_version: str) -> Profile:
         row_count=int(data.get("row_count", 0)),
         columns=tuple(_column_profile_from_dict(c) for c in data.get("columns") or []),
         correlations=_correlations_from_dict(data.get("correlations")),
+        leakage_guard=_leakage_guard_from_dict(data.get("leakage_guard")),
+    )
+
+
+def _leakage_guard_from_dict(d: dict[str, Any] | None) -> LeakageGuard | None:
+    if d is None:
+        return None
+    columns = {
+        str(name): tuple(str(h) for h in digests)
+        for name, digests in (d.get("columns") or {}).items()
+    }
+    return LeakageGuard(
+        salt=str(d["salt"]),
+        algorithm=str(d.get("algorithm", "blake2b")),
+        columns=columns,
     )
 
 

@@ -21,11 +21,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from tymi.domain.artifacts import CorrelationMatrix, Dataset, Profile
+from tymi.core.errors import LeakageError
+from tymi.domain.artifacts import ColumnProfile, CorrelationMatrix, Dataset, LogicalType, Profile
 from tymi.synth.conditions import Condition, validate_conditions
 from tymi.synth.copula import gaussian_copula_uniforms
-from tymi.synth.faker_values import apply_formatted_values
-from tymi.synth.marginals import synthesize
+from tymi.synth.faker_values import apply_formatted_values, fake_values, formatted_kind
+from tymi.synth.leakage import enforce_leakage_gate
+from tymi.synth.marginals import resample_column, synthesize
 
 #: Default max absolute divergence allowed between source and generated pairwise
 #: rank correlation (wiring a configurable Tolerance into Config is a later story).
@@ -64,7 +66,41 @@ def generate_faithful(
     dataset = synthesize(profile, rows=rows, rng=rng, uniforms=uniforms, conditions=conditions)
     # Overlay realistic email/name/phone/uuid values on matching text columns —
     # but never on a conditioned column (its values must satisfy the predicate).
-    return apply_formatted_values(dataset, rng=rng, skip=set(conditions))
+    dataset = apply_formatted_values(dataset, rng=rng, skip=set(conditions))
+    # Terminal core stage (AD-7/AD-8): no real sensitive value reaches output.
+    return enforce_leakage_gate(
+        dataset,
+        profile.leakage_guard,
+        rng=rng,
+        resample=_make_resampler(profile, conditions),
+    )
+
+
+def _make_resampler(profile: Profile, conditions: dict[str, Condition]):
+    """Build the per-column regenerator the leakage gate uses on a collision.
+
+    It mirrors how each column was generated so replacements stay faithful: a
+    conditioned column resamples under its condition (an ``Equals`` to a real value
+    thus fails closed); a formatted STRING column (email/name/uuid) resamples via
+    Faker; every other column resamples from its marginal.
+    """
+    cp_by_name: dict[str, ColumnProfile] = {c.name: c for c in profile.columns}
+    type_by_name = {c.name: c.logical_type for c in profile.schema.columns}
+
+    def resample(name: str, count: int, rng) -> object:
+        condition = conditions.get(name)
+        if condition is None and type_by_name.get(name) == LogicalType.STRING:
+            kind = formatted_kind(name)
+            if kind is not None:
+                return fake_values(kind, count, rng=rng)
+        cp = cp_by_name.get(name)
+        if cp is None:  # guarded column is always profiled; defensive
+            raise LeakageError(
+                f"cannot regenerate sensitive column {name!r}: no profiled statistics."
+            )
+        return resample_column(cp, count, rng, condition=condition).to_numpy()
+
+    return resample
 
 
 def _correlated_uniforms(

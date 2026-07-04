@@ -27,6 +27,15 @@ class GenerationError(TymiError):
     """Synthetic generation cannot satisfy the request (e.g. a cyclic FK graph)."""
 
 
+class LeakageError(TymiError):
+    """The leakage gate could not keep a real sensitive value out of the output.
+
+    Raised when a colliding value in a Sensitive Column cannot be regenerated away
+    within the attempt budget; the run **fails closed** rather than emit a real
+    value (NFR-1, AD-7).
+    """
+
+
 class EngineError(TymiError):
     """A source/destination engine adapter failed."""
 

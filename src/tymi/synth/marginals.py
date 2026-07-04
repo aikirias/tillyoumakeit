@@ -130,6 +130,7 @@ def _generate_column(
     *,
     uniform: np.ndarray | None = None,
     condition: Condition | None = None,
+    inject_nulls: bool = True,
 ) -> pd.Series:
     """Build one synthetic column as a pandas Series with a Schema-consistent dtype.
 
@@ -139,11 +140,15 @@ def _generate_column(
 
     ``condition`` (Story 2.4) restricts this column's sampler so every row
     satisfies it; a conditioned column carries **no nulls**.
+
+    ``inject_nulls`` (Story 2.5) is set ``False`` by the leakage gate's resampler so
+    a regenerated cell is never a NULL — a NULL never collides, so injecting one
+    would silently "resolve" a collision by nulling the cell instead of replacing it.
     """
     if condition is not None:
         return _conditioned_column(cp, rows, rng, condition, uniform)
 
-    mask = _null_mask(cp, rows, rng)
+    mask = _null_mask(cp, rows, rng) if inject_nulls else np.zeros(rows, dtype=bool)
 
     # Dispatch on the stats actually present (a STRING column may carry either
     # category labels or length stats), falling back to all-null.
@@ -165,6 +170,24 @@ def _generate_column(
 
     # No usable stats (all-null column, or numeric column with no finite values).
     return pd.Series([None] * rows, dtype=object)
+
+
+def resample_column(
+    cp: ColumnProfile,
+    rows: int,
+    rng: np.random.Generator,
+    *,
+    condition: Condition | None = None,
+) -> pd.Series:
+    """Draw ``rows`` fresh independent values for one column (Story 2.5 gate).
+
+    Used by the leakage gate to regenerate colliding cells: it mirrors the marginal
+    sampler (optionally under a Story 2.4 ``condition``) with an independent draw —
+    the copula's correlation is not re-imposed on a handful of replaced cells. Never
+    injects a NULL (a NULL would spuriously "resolve" a collision without replacing
+    the real value), so the gate either finds a clean value or fails closed.
+    """
+    return _generate_column(cp, rows, rng, condition=condition, inject_nulls=False)
 
 
 # --- conditioned sampling (Story 2.4) -------------------------------------

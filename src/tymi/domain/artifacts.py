@@ -10,11 +10,32 @@ flesh out their fields.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 
 import pandas as pd
+
+#: Digest size (bytes) for the leakage guard's keyed hashes. 16 bytes (128-bit)
+#: makes accidental collisions between distinct source values negligible.
+_LEAKAGE_DIGEST_SIZE = 16
+
+
+def leakage_digest(value: object, salt: str) -> str:
+    """Keyed one-way digest of ``value`` for the leakage guard (AD-6/AD-7).
+
+    A per-Profile ``salt`` keys a BLAKE2b hash so the Profile stores membership of
+    the source's real sensitive values **without** the raw value and without being
+    vulnerable to generic precomputed rainbow tables. The value is stringified the
+    same way the profiler stringifies category labels, so a source value and an
+    equal generated value hash identically. Stdlib only, so this stays in
+    ``domain`` (no adapter import).
+    """
+    key = salt.encode("utf-8")[:64]  # BLAKE2b key is at most 64 bytes
+    return hashlib.blake2b(
+        str(value).encode("utf-8"), key=key, digest_size=_LEAKAGE_DIGEST_SIZE
+    ).hexdigest()
 
 
 class LogicalType(StrEnum):
@@ -151,11 +172,28 @@ class Correlations:
     categorical: CorrelationMatrix | None = None
 
 
+@dataclass(frozen=True)
+class LeakageGuard:
+    """Hashed membership set of the source's real values for sensitive columns.
+
+    AD-7: the leakage gate checks every emitted sensitive value against this set
+    and regenerates on collision. AD-6 is preserved — only keyed one-way digests
+    (see :func:`leakage_digest`) are stored, never a raw value. ``columns`` maps a
+    sensitive column name to the sorted distinct digests of its real values; the
+    ``salt`` is a per-Profile nonce reused by the gate to hash generated values.
+    """
+
+    salt: str
+    algorithm: str = "blake2b"
+    columns: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+
 @dataclass
 class Profile:
     """Statistical signature of a source table.
 
-    AD-6: stores only aggregates + schema + PII tags, never raw row values.
+    AD-6: stores only aggregates + schema + PII tags + hashed leakage guard, never
+    raw row values.
     """
 
     schema_version: str = "1.0.0"
@@ -163,6 +201,7 @@ class Profile:
     row_count: int = 0
     columns: tuple[ColumnProfile, ...] = ()
     correlations: Correlations | None = None
+    leakage_guard: LeakageGuard | None = None
 
 
 @dataclass
