@@ -212,6 +212,30 @@ def test_factory_raising_on_init_raises_chaos_error() -> None:
         resolve_mutators(["boom"], registry={"boom": _Boom})
 
 
+def test_incompatible_apply_signature_raises_at_resolve() -> None:
+    # a plugin author who forgets `*, rng` passes isinstance (Protocol checks presence
+    # only) but must be caught up front, not with a raw TypeError mid-chain.
+    class _NoRng:
+        name = "no_rng"
+
+        def apply(self, dataset):  # missing the required rng keyword
+            return dataset, FaultManifest()
+
+    with pytest.raises(ChaosError, match="incompatible apply.. signature"):
+        resolve_mutators(["no_rng"], registry={"no_rng": _NoRng})
+
+
+def test_varargs_apply_signature_is_accepted() -> None:
+    # a permissive apply(*args, **kwargs) can handle the call → not rejected.
+    class _VarArgs:
+        name = "va"
+
+        def apply(self, *args, **kwargs):
+            return args[0], FaultManifest()
+
+    assert [m.name for m in resolve_mutators(["va"], registry={"va": _VarArgs})] == ["va"]
+
+
 def test_in_place_mutation_does_not_leak_to_caller() -> None:
     class _InPlace:
         name = "in_place"
@@ -234,6 +258,13 @@ def test_merge_fault_manifests_preserves_order() -> None:
     a = FaultManifest(entries=[{"i": 1}, {"i": 2}])
     b = FaultManifest(entries=[{"i": 3}])
     assert merge_fault_manifests([a, b]).entries == [{"i": 1}, {"i": 2}, {"i": 3}]
+
+
+def test_merge_does_not_alias_source_entries() -> None:
+    source = FaultManifest(entries=[{"k": 1}])
+    merged = merge_fault_manifests([source])
+    merged.entries[0]["k"] = 999  # editing the merged entry must not reach the source
+    assert source.entries[0]["k"] == 1
 
 
 def test_fault_manifest_to_json_round_trips() -> None:

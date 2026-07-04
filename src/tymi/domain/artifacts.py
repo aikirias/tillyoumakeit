@@ -242,10 +242,14 @@ class FaultManifest:
 
 
 def merge_fault_manifests(manifests: Iterable[FaultManifest]) -> FaultManifest:
-    """Concatenate manifests into one, preserving order (the chaos chain's order)."""
+    """Concatenate manifests into one, preserving order (the chaos chain's order).
+
+    Each entry is shallow-copied so editing a merged entry (e.g. a downstream audit,
+    Story 3.6) cannot reach back and corrupt the producing Mutator's own manifest.
+    """
     merged: list[dict[str, object]] = []
     for manifest in manifests:
-        merged.extend(manifest.entries)
+        merged.extend(dict(entry) for entry in manifest.entries)
     return FaultManifest(entries=merged)
 
 

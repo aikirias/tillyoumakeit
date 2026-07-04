@@ -12,6 +12,7 @@ those later stories; this module is the engine + discovery + manifest merge.
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Mapping, Sequence
 
 import numpy as np
@@ -51,8 +52,22 @@ def resolve_mutators(
                 f"mutator {name!r} does not satisfy the Mutator port "
                 "(needs a 'name' and an 'apply(dataset, *, rng)')."
             )
+        # ``runtime_checkable`` only checks member *presence*, so a wrong-arity
+        # ``apply`` (e.g. the author forgot ``*, rng``) passes isinstance and would
+        # crash with a raw TypeError mid-chain. Validate the call binds up front.
+        try:
+            inspect.signature(mutator.apply).bind(_PROBE, rng=_PROBE)
+        except TypeError as exc:
+            raise ChaosError(
+                f"mutator {name!r} has an incompatible apply() signature "
+                f"(needs apply(dataset, *, rng)): {exc}"
+            ) from exc
         resolved.append(mutator)
     return resolved
+
+
+#: Sentinel used only to bind-check a Mutator's ``apply`` signature (never called with).
+_PROBE = object()
 
 
 def apply_chaos(
@@ -65,11 +80,14 @@ def apply_chaos(
     The merged manifest preserves chain order so the audit contract (Story 3.6) can map
     every entry back to what produced it. Deterministic for a given seed + chain.
 
-    The caller's Dataset is never mutated: the engine works on a copy of the frame, so
-    even a (contract-violating) Mutator that edits in place cannot corrupt the input,
-    and re-running is idempotent. A Mutator that returns anything other than a
-    ``(Dataset, FaultManifest)`` pair raises :class:`ChaosError` naming it, rather than
-    a cryptic unpack/attribute error deep in the chain.
+    The caller's Dataset is protected: the engine works on a copy of the frame, so a
+    (contract-violating) Mutator that reassigns cells or edits the frame in place
+    cannot corrupt the input, and re-running is idempotent. (The copy cannot defend
+    against a Mutator that mutates a *mutable object stored inside a cell* — e.g. a
+    list — in place; that remains the Mutator's own AD-10 contract violation.) A
+    Mutator that returns anything other than a ``(Dataset, FaultManifest)`` pair raises
+    :class:`ChaosError` naming it, rather than a cryptic unpack/attribute error deep in
+    the chain.
     """
     if not mutators:
         return dataset, FaultManifest()
