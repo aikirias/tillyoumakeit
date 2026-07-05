@@ -36,8 +36,12 @@ As a self-service provisioner, I want the whole DB generated and written chunk-b
 peak memory is one chunk at any DB size (AD-24).
 
 **AC.** `stream_from_spec(spec)` yields `(table, chunk_index, GatedDataset)` in FK-topological order,
-each chunk sealed (AD-21). `EngineAdapter` gains a streaming write (`load_stream`): first chunk
-replaces (truncate), the rest append; idempotent on re-run. Only `GatedDataset` chunks are written.
+each chunk **sealed** into a `GatedDataset` (AD-21). Every table yields ≥1 block (an empty one for a
+0-row table) so the destination is always materialised/truncated. `EngineAdapter` gains a streaming
+write (`load_stream`): first chunk replaces (truncate), the rest append; idempotent on re-run.
+`load_stream` takes `Dataset` chunks (like `load`); AD-21 at the write boundary is **enforced at the
+call site** — the provision pipeline (P2.4) calls `require_gated` on each chunk before writing, so
+no un-gated data reaches a destination.
 
 ### Story P2.4: Out-of-core `provision` + aggregated report
 

@@ -31,6 +31,8 @@ class EngineAdapter(Protocol):
 
     def load(self, dataset: Dataset, *, table: str) -> None: ...
 
+    def load_stream(self, chunks: object, *, table: str) -> int: ...
+
 
 @runtime_checkable
 class Synthesizer(Protocol):

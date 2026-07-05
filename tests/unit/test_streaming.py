@@ -142,8 +142,10 @@ def test_single_chunk_when_chunk_rows_exceeds_total() -> None:
     assert len(blocks) == 1 and len(blocks[0].frame) == 30
 
 
-def test_empty_table_yields_no_blocks() -> None:
-    assert _gen(total_rows=0, chunk_rows=100) == []
+def test_empty_table_yields_one_empty_block() -> None:
+    # A 0-row table still yields ONE empty block so the destination table is materialised/truncated.
+    blocks = _gen(total_rows=0, chunk_rows=100)
+    assert len(blocks) == 1 and len(blocks[0].frame) == 0
 
 
 def test_chunk_rows_must_be_positive() -> None:

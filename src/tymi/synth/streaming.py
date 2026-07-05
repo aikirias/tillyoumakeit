@@ -22,10 +22,15 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from tymi.config.spec import Spec, spec_profiles
 from tymi.core.errors import GenerationError, KeyspaceError
-from tymi.domain.artifacts import Dataset, LogicalType, Profile
+from tymi.domain.artifacts import Dataset, GatedDataset, LogicalType, Profile
+from tymi.privacy.classifier import classify_sensitive_columns
 from tymi.synth.generator import generate_faithful
+from tymi.synth.leakage import scan_and_gate
+from tymi.synth.relational import _topological_order
 from tymi.synth.substreams import table_substream
+from tymi.synth.whole_db import _require_fk_complete, _structural_columns
 
 
 @dataclass(frozen=True)
@@ -72,7 +77,10 @@ def generate_table_chunks(
     surrogate_pks = _surrogate_pk_columns(profile)
     offset = 0
     chunk_index = 0
-    while offset < total_rows:
+    # Always yield at least one block — an EMPTY one for a 0-row table — so the destination table
+    # is always materialised/truncated on the streaming write (otherwise a table that dropped to 0
+    # rows would leave stale rows behind, breaking idempotency, AD-24).
+    while offset < total_rows or chunk_index == 0:
         block_len = min(chunk_rows, total_rows - offset)
         rng = table_substream(seed, table, chunk_index)
         frame = generate_faithful(profile, rows=block_len, rng=rng).frame.copy()
@@ -177,3 +185,87 @@ def _as_dtype(values: np.ndarray, column):
     import pandas as pd
 
     return pd.Series(values, index=column.index).astype(column.dtype)
+
+
+# --- whole-DB streaming orchestration (AD-22/23/24) -------------------------
+
+
+@dataclass(frozen=True)
+class StreamChunk:
+    """One sealed block of a streamed table: table name, 0-based chunk index, GatedDataset."""
+
+    table: str
+    chunk_index: int
+    gated: GatedDataset
+
+
+def stream_from_spec(spec: Spec) -> Iterator[StreamChunk]:
+    """Stream the whole DB as sealed, bounded-memory chunks in FK-topological order (AD-22/23/24).
+
+    Each table is generated one ``spec.chunk_rows`` block at a time; foreign keys are resolved by
+    parent position (the parent is never loaded), and each block is sealed into a ``GatedDataset``
+    (AD-21) before it is yielded. Peak memory is one block regardless of a table's size.
+
+    Fixtures are **not** overlaid on the streaming path yet: a table that pins fixtures fails closed
+    with a clear message (fixtures are small — use the in-memory ``generate_from_spec`` for a DB
+    that needs them). This is a documented Phase-2 limit.
+    """
+    profiles = spec_profiles(spec)
+    _require_fk_complete(profiles)
+    for table in _topological_order(profiles):
+        ts = spec.tables[table]
+        if ts.fixtures:
+            raise GenerationError(
+                f"table {table!r} pins fixtures, which the streaming path does not overlay yet; "
+                "use the in-memory generate_from_spec for a DB with fixtures (Phase-2 limit)."
+            )
+        profile = profiles[table]
+        shared = tuple(ts.shared_keys)
+        rules = _fk_rules_for(spec, profiles, table)
+        structural = _structural_columns(profile.schema, shared)
+        for index, block in enumerate(
+            generate_table_chunks(
+                profile,
+                total_rows=ts.rows,
+                seed=spec.seed,
+                table=table,
+                chunk_rows=spec.chunk_rows,
+                shared_keys=shared,
+                reserved=ts.reserved_key_block,
+                fk_rules=rules,
+            )
+        ):
+            sealed = scan_and_gate(
+                block,
+                profile.leakage_guard,
+                structural_columns=structural,
+                classify=classify_sensitive_columns,
+            )
+            yield StreamChunk(table=table, chunk_index=index, gated=sealed)
+
+
+def _fk_rules_for(
+    spec: Spec, profiles: dict[str, Profile], table: str
+) -> dict[tuple[str, str], ParentKeyRule]:
+    """Build position-addressable FK rules for ``table`` from the Spec (unresolved target → none).
+
+    A referred column that is a parent **shared key** maps to ``reserved + col_index·rows``; a
+    parent **single-column integer surrogate PK** maps to ``base 0``. A natural-key target gets no
+    rule, so :func:`generate_table_chunks` fails closed on it (AD-23).
+    """
+    rules: dict[tuple[str, str], ParentKeyRule] = {}
+    for fk in profiles[table].schema.foreign_keys:
+        parent = fk.referred_table
+        parent_ts = spec.tables.get(parent)
+        if parent_ts is None:
+            continue  # out-of-spec parent → generate_table_chunks fails closed on the missing rule
+        parent_total = parent_ts.rows
+        parent_shared = list(parent_ts.shared_keys)
+        for parent_col in fk.referred_columns:
+            if parent_col in parent_shared:
+                col_index = parent_shared.index(parent_col)
+                base = parent_ts.reserved_key_block + col_index * parent_total
+                rules[(parent, parent_col)] = ParentKeyRule(parent_total, base)
+            elif parent_col in _surrogate_pk_columns(profiles[parent]):
+                rules[(parent, parent_col)] = ParentKeyRule(parent_total, 0)
+    return rules

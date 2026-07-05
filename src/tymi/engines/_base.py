@@ -215,6 +215,56 @@ class SqlAlchemyEngineAdapter:
                 f"Cannot load into {self.DIALECT} at {self._conn.host}:{self._port()}: {detail}"
             ) from None
 
+    def load_stream(self, chunks, *, table: str) -> int:
+        """Stream row-chunks into ``table``: replace on the first, append the rest (AD-24).
+
+        The first chunk **(re)creates** the table from the Schema type map (``if_exists="replace"``
+        — truncate-first, so a re-run is idempotent), and every later chunk **appends**. Each chunk
+        is written in its own transaction, so peak memory is one chunk regardless of the table's
+        size (out-of-core). Returns the total rows written. ``stream_from_spec`` yields ≥1 (possibly
+        empty) block per table, so every table is materialised/truncated even at 0 rows.
+
+        Chunks are ``Dataset`` blocks (as with :meth:`load`); the AD-21 load boundary is enforced at
+        the **call site** — the provision pipeline passes only ``require_gated`` chunks into here.
+        """
+        from tymi.engines._introspect import logical_to_sqltype
+        from tymi.io.schema_map import normalize_for_export
+
+        schema_name, table_name = self._split_table(table)
+        url = self.build_url()
+        password = url.password or ""
+        written = 0
+        first = True
+        try:
+            engine = create_engine(url)
+            try:
+                for dataset in chunks:
+                    frame = normalize_for_export(dataset)
+                    dtype_map = {
+                        col.name: logical_to_sqltype(col.logical_type)
+                        for col in dataset.schema.columns
+                        if col.name in frame.columns
+                    }
+                    with engine.begin() as conn:
+                        frame.to_sql(
+                            table_name,
+                            conn,
+                            schema=schema_name,
+                            if_exists="replace" if first else "append",
+                            index=False,
+                            dtype=dtype_map,
+                        )
+                    written += len(frame)
+                    first = False
+            finally:
+                engine.dispose()
+        except Exception as exc:  # noqa: BLE001 - boundary must never leak the secret
+            detail = _scrub(str(exc), password)
+            raise EngineError(
+                f"Cannot stream into {self.DIALECT} at {self._conn.host}:{self._port()}: {detail}"
+            ) from None
+        return written
+
 
 def _scrub(message: str, secret: str) -> str:
     """Remove a secret from a message, including URL-encoded forms (NFR-6)."""
