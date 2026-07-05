@@ -48,8 +48,10 @@ whole-DB dataset, and **audit whether the consumer caught it**. The differentiat
 loop (does your pipeline/alert survive?), not another mutator. Build **narrow and deep**: one
 genuinely-new family + the detection audit, proven end-to-end against a reference fixture —
 not a broad shelf of re-skinned mutators. **Multi-table by design** (a dropped record only
-breaks a real pipeline when it orphans a child across a join), reusing PRD 1's whole-DB model
-and the shipped `OrphanFkMutator` / `_drop_from_schema`.
+breaks a real pipeline when it orphans a child across a join), reusing PRD 1's whole-DB FK
+model. (Note: whole-**row deletion** is genuinely new — the shipped `OrphanFkMutator` edits an
+FK *cell* to a non-existent value and `_drop_from_schema` drops *columns*; neither removes
+rows. See architecture AD-29.)
 
 ## Goals & Success Metrics
 
@@ -89,9 +91,10 @@ drift faults their pipeline or alerts failed to catch — reproducibly.
 ### A. Referential missing-data (Phase 1)
 
 - **CC-1 — Dropped records (referential).** Remove a configurable fraction of whole rows,
-  **including rows whose deletion orphans a child across a join** (reuses the shipped
-  `OrphanFkMutator` / `_drop_from_schema` and PRD 1's whole-DB FK model). This is the fault
-  that actually breaks multi-table pipelines.
+  **including rows whose deletion orphans a child across a join** (built on PRD 1's whole-DB
+  FK model via a new relational-chaos stage — architecture AD-29 — since whole-row deletion is
+  genuinely new: the shipped `OrphanFkMutator` edits an FK *cell* and `_drop_from_schema` drops
+  *columns*, neither removes rows). This is the fault that actually breaks multi-table pipelines.
 - **CC-3 — Sequence gaps.** Introduce gaps in a monotonic column (missing IDs / skipped
   timestamps) so gap-detection is exercised.
 
