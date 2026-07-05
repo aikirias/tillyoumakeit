@@ -173,11 +173,13 @@ def test_app_shell_renders_connection_by_default() -> None:
     assert any("names" in c.value for c in at.caption)
 
 
-def test_app_sidebar_navigates_to_placeholder_steps() -> None:
-    at = _app_test().run()
-    at.radio[0].set_value("Reports").run()
-    assert not at.exception
-    assert any("Story 5.5" in i.value for i in at.info)
+def test_app_all_steps_are_real_pages() -> None:
+    # Every wizard step is implemented (5.1-5.5) — none is a placeholder.
+    for step in ("Profile", "Generate", "Chaos", "Reports"):
+        at = _app_test().run()
+        at.radio[0].set_value(step).run()
+        assert not at.exception
+        assert any(step in h.value for h in at.header)
 
 
 def test_app_saves_connection_through_the_form() -> None:
@@ -190,14 +192,6 @@ def test_app_saves_connection_through_the_form() -> None:
     assert not at.exception
     assert any("Saved connection" in s.value for s in at.success)
     assert at.session_state["config"].source.engine == "postgres"
-
-
-def test_app_all_placeholder_steps_render() -> None:
-    for step in ("Reports",):  # Profile/Generate/Chaos are real pages (5.2–5.4)
-        at = _app_test().run()
-        at.radio[0].set_value(step).run()
-        assert not at.exception
-        assert any("Story 5." in i.value for i in at.info)
 
 
 def test_app_test_connection_button_uses_injected_registry(monkeypatch) -> None:

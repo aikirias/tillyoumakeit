@@ -13,13 +13,12 @@ from __future__ import annotations
 import streamlit as st
 
 from tymi.core.errors import TymiError
+from tymi.domain.artifacts import fidelity_report_to_json, quality_privacy_report_to_json
 from tymi.ui import services
 
 #: Wizard steps shown in the sidebar. Steps past Connection are filled in 5.2–5.5.
 STEPS = ("Connection", "Profile", "Generate", "Chaos", "Reports")
-_PLACEHOLDER = {
-    "Reports": "Reports view & export — Story 5.5.",
-}
+_PLACEHOLDER: dict[str, str] = {}
 
 
 def _config() -> services.Config:
@@ -242,12 +241,77 @@ def render_chaos() -> None:
         st.caption(f"{len(manifest.entries)} faults recorded in the manifest.")
 
 
+def _export_section(dataset) -> None:
+    """Download the dataset as a file, or load it into the configured engine."""
+    st.subheader("Export")
+    fmt = st.selectbox("File format", services.EXPORT_FORMATS, key="export_fmt")
+    try:
+        payload = services.export_bytes(dataset, fmt)
+        st.download_button(f"Download {fmt}", data=payload, file_name=f"tymi.{fmt}")
+    except TymiError as exc:
+        st.error(f"Could not export: {exc}")
+    except Exception:  # noqa: BLE001 - an unexpected serializer error must not crash the page
+        st.error("Could not export: unexpected serialization error.")
+
+    st.markdown("**Load into the configured engine**")
+    table = st.text_input("Destination table", key="load_table")
+    if st.button("Load into engine"):
+        try:
+            st.success(services.load_to_engine(_config(), dataset, table=table))
+        except (ValueError, TymiError) as exc:
+            st.error(f"Load failed: {exc}")
+        except Exception:  # noqa: BLE001 - don't echo a raw driver traceback (NFR-6)
+            st.error("Load failed: unexpected engine error.")
+
+
+def render_reports() -> None:
+    """Show the faithful reports or the chaos Fault Manifest, and export the dataset."""
+    st.header("Reports")
+    chaotic = st.session_state.get("chaotic")
+    manifest = st.session_state.get("manifest")
+    generated = st.session_state.get("generated")
+    profile = st.session_state.get("profile")
+    have_chaos = chaotic is not None and manifest is not None
+    have_faithful = generated is not None and profile is not None
+
+    if not have_chaos and not have_faithful:
+        st.info("Generate faithful data or run a chaos preview first.")
+        return
+
+    # When both runs are in session, let the user pick which report to view (so a chaos
+    # run doesn't silently shadow the faithful reports); otherwise show the only one.
+    options = (["Faithful"] if have_faithful else []) + (["Chaos"] if have_chaos else [])
+    choice = (
+        options[0]
+        if len(options) == 1
+        else st.radio("Report for", options, horizontal=True, key="report_mode")
+    )
+
+    if choice == "Chaos":
+        st.subheader("Fault Manifest (chaos run)")
+        st.caption(f"{len(manifest.entries)} faults recorded.")
+        st.dataframe(services.manifest_table(manifest))
+        _export_section(chaotic)
+    else:
+        # Honor the tolerance the user set in the Generate step (persisted on the Config).
+        fidelity, privacy = services.faithful_reports(
+            profile, generated, tolerance=_config().generation.tolerance
+        )
+        st.subheader("Fidelity report")
+        st.caption(f"passed={fidelity.passed}")
+        st.json(fidelity_report_to_json(fidelity))
+        st.subheader("Quality & privacy report")
+        st.caption(f"passed={privacy.passed}")
+        st.json(quality_privacy_report_to_json(privacy))
+        _export_section(generated)
+
+
 def main() -> None:
     """Render the sidebar wizard and the selected step."""
     st.set_page_config(page_title="TYMI", page_icon="🎲")
     st.title("TYMI — Fake It Till You Make It")
     _config()
-    step = st.sidebar.radio("Step", STEPS)
+    step = st.sidebar.radio("Step", STEPS, key="wizard_step")
     if step == "Connection":
         render_connection()
     elif step == "Profile":
@@ -257,8 +321,7 @@ def main() -> None:
     elif step == "Chaos":
         render_chaos()
     else:
-        st.header(step)
-        st.info(_PLACEHOLDER[step])
+        render_reports()
 
 
 main()

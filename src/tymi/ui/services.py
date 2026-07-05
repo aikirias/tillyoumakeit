@@ -18,7 +18,18 @@ from tymi.config.models import ChaosConfig, Config, ConnectionConfig, MutatorSpe
 from tymi.core.errors import ChaosError, EngineConnectionError, TymiError
 from tymi.core.plugins import load_engines, load_mutators
 from tymi.core.rng import make_rng
-from tymi.domain.artifacts import ColumnProfile, Dataset, FaultManifest, Profile, Schema
+from tymi.domain.artifacts import (
+    ColumnProfile,
+    Dataset,
+    FaultManifest,
+    FidelityReport,
+    Profile,
+    QualityPrivacyReport,
+    Schema,
+)
+from tymi.eval.fidelity import fidelity_report
+from tymi.eval.privacy_report import quality_privacy_report
+from tymi.io.exporters import FILE_FORMATS, get_exporter
 from tymi.profiling.profiler import profile_dataset
 from tymi.synth.conditions import parse_conditions
 from tymi.synth.generator import generate_faithful
@@ -444,6 +455,83 @@ def fault_style_frame(
     return styles
 
 
+# --- reports view + export (Story 5.5) --------------------------------------
+
+#: File export formats offered in the UI (the deterministic file exporters).
+EXPORT_FORMATS = FILE_FORMATS
+
+
+def faithful_reports(
+    profile: Profile,
+    dataset: Dataset,
+    *,
+    tolerance: float = 0.9,
+    membership_threshold: float = 0.0,
+    attribute_threshold: float = 1.0,
+) -> tuple[FidelityReport, QualityPrivacyReport]:
+    """The Story 2.7 fidelity + Story 4.3 quality/privacy reports for a faithful run."""
+    fidelity = fidelity_report(profile, dataset, tolerance=tolerance)
+    privacy = quality_privacy_report(
+        profile,
+        dataset,
+        tolerance=tolerance,
+        membership_threshold=membership_threshold,
+        attribute_threshold=attribute_threshold,
+    )
+    return fidelity, privacy
+
+
+def manifest_table(manifest: FaultManifest) -> pd.DataFrame:
+    """The Fault Manifest entries as a display table (empty frame when no faults)."""
+    if not manifest.entries:
+        return pd.DataFrame(columns=["mutator", "row", "column", "fault_type"])
+    df = pd.DataFrame(manifest.entries)
+    if "row" in df.columns:
+        # Ragged entries (structural mutators omit "row") NaN-fill the column to float, so
+        # rows display as "3.0"; a nullable Int64 keeps them integers with <NA> for gaps.
+        df["row"] = df["row"].astype("Int64")
+    return df
+
+
+def export_bytes(dataset: Dataset, fmt: str) -> bytes:
+    """Serialize ``dataset`` via the deterministic file exporter (byte-identical to the CLI)."""
+    exporter = get_exporter(fmt)  # raises ExportError on an unknown format
+    # The exporters write to a path; run one to a temp file and return its bytes so the
+    # download inherits the exporter's determinism / Schema-driven dtype mapping (AD-10).
+    import os
+    import tempfile
+
+    handle, path = tempfile.mkstemp(suffix=f".{fmt}")
+    os.close(handle)
+    try:
+        exporter.export(dataset, target=path)
+        with open(path, "rb") as stream:
+            return stream.read()
+    finally:
+        os.unlink(path)
+
+
+def load_to_engine(
+    config: Config,
+    dataset: Dataset,
+    *,
+    table: str,
+    engines: dict[str, type] | None = None,
+) -> str:
+    """Load ``dataset`` into the configured engine (the CLI ``--to sql`` path, AD-2)."""
+    source = config.source
+    if source.engine is None or source.connection is None:
+        raise ValueError("No connection configured.")
+    if not table.strip():
+        raise ValueError("Destination table is required.")
+    registry = engines if engines is not None else load_engines()
+    adapter_cls = registry.get(source.engine)
+    if adapter_cls is None:
+        raise ValueError(f"Unknown engine {source.engine!r}. Available: {sorted(registry)}")
+    adapter_cls(source.connection).load(dataset, table=table.strip())
+    return f"Loaded {len(dataset.frame)} rows into {table.strip()!r} on {source.engine!r}."
+
+
 __all__ = [
     "ENGINES",
     "ConnectionResult",
@@ -469,4 +557,9 @@ __all__ = [
     "fault_locations",
     "fault_style_frame",
     "FAULT_STYLE",
+    "EXPORT_FORMATS",
+    "faithful_reports",
+    "manifest_table",
+    "export_bytes",
+    "load_to_engine",
 ]

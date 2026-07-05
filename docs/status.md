@@ -49,7 +49,7 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 | 4.2 | **Privacy Filters (similarity + outlier)** — two `PrivacyFilter`s over faithful output: `SimilarityFilter` drops any row within `threshold` of a real `reference` row (a mixed-type, null-aware, z-scored distance — both-null matches so a memorized copy sharing a null can't slip the gate) and `OutlierFilter` drops tail extremes via a robust median/MAD modified z-score (catches clustered memorized extremes that mean/std self-masks). Both take the real `reference` explicitly (AD-6: the Profile stores no raw values → connected-only), preserve the canonical Schema (AD-10), and are drop-only → deterministic (AD-4/AD-11). Fail-loud: disjoint columns raise (no silent no-op), `threshold <= 0` rejected; pairwise distance computed in row-blocks to bound memory. `PrivacyConfig` toggles + thresholds. Pipeline wiring + residual-risk report → 4.3 | ✅ |
 | 4.3 | **Quality & Privacy Report** — `tymi report --quality-privacy` emits a composite Quality Score (mean of the Story 2.7 KS/TV/correlation fidelity metrics) plus two in-house privacy metrics (AD-9: no SDMetrics): a **membership-disclosure** rate — the worst sensitive column's share of generated values that exactly reproduce a real source value, checked against the hashed `LeakageGuard` (keyed digests only, AD-6; a gated faithful run scores ~0) — and an **attribute-inference** proxy on the released data (max Spearman ρ / best single-predictor conditional-mode accuracy, with support guards). Deterministic JSON export (`--out`) and three configurable CI gates (`--tolerance` / `--membership-threshold` / `--attribute-threshold`) that fail the build on exit 1 | ✅ |
 
-## Epic 5 — Web UI (Streamlit) 🚧
+## Epic 5 — Web UI (Streamlit) ✅
 
 Wizard exposing the full connect → profile → configure → preview → export flow.
 
@@ -59,11 +59,13 @@ Wizard exposing the full connect → profile → configure → preview → expor
 | 5.2 | **Profile & schema explorer** — the Profile page samples + profiles a table in-process (`run_profile`, byte-identical to the CLI `profile` wiring, AD-8) and stores the `Profile` in session; it renders the normalized Schema table (name/type/nullable/PK) and per-column distribution charts built only from the Profile's stored aggregates (AD-6): numeric → histogram, categorical → frequencies, datetime → day-of-week + month, text → length summary. No-connection guidance; failure surfaces without echoing raw driver errors (NFR-6) and clears any stale profile | ✅ |
 | 5.3 | **Faithful generation config + preview** — the Generate page configures rows/seed/tolerance/conditions (pre-filled from the Config) and previews a real faithful sample via the same `generate_faithful` + `parse_conditions` path as the CLI (AD-8, deterministic AD-4); it renders the sample and a per-column source-vs-generated distribution comparison (source from Profile aggregates, generated re-binned over the same bins; out-of-range mass shown honestly). Choices are re-validated and written back to `Config.generation`/`Config.seed` (new `conditions` field, YAML round-trips). No-profile guidance; numeric+categorical comparison only (disclosed) | ✅ |
 | 5.4 | **Chaos policy config + preview** — the Chaos page configures mode/rate/mutators (+ FK confirmation) and previews via the same `generate_faithful` → `apply_policy` path as the CLI `chaos` (single threaded rng, deterministic); the corrupted cells are highlighted from the Fault Manifest (pure `fault_style_frame`). `fully_chaotic` over a table with foreign keys is refused until the confirmation box is ticked (mirrors CLI `--confirm`). The policy is re-validated and written back to `Config.chaos` (YAML round-trips); stable widget keys so a re-preview honors changed selections | ✅ |
-| 5.5 | Reports view + export | ⬜ |
+| 5.5 | **Reports view + export** — the Reports page shows the faithful reports (Fidelity + Quality & Privacy, the exact CLI artifacts) or the chaos Fault Manifest, with a "Report for" toggle when both runs are in session; it exports the dataset to csv/json/parquet (byte-identical to the CLI exporter, NFR-4) via a download button, or loads it into the configured engine (`adapter.load`, the CLI `--to sql` path, AD-2). Nothing-generated guidance | ✅ |
 
 ## What works today
 
-- `tymi --help` and the CLI command surface (most subcommands are stubs).
+- `tymi --help` and the full CLI command surface (no stubs remain).
+- `tymi ui` — the Streamlit wizard for the whole flow (connect → profile → generate →
+  chaos → reports/export), in-process over the same shared Config the CLI uses (Epic 5).
 - `tymi test-connection --engine <mssql|postgres|mysql|starrocks> --config <file>` —
   real connectivity check for all four engines, with credentials read from
   environment variables. (PostgreSQL and MySQL are verified end-to-end against
@@ -104,11 +106,11 @@ Wizard exposing the full connect → profile → configure → preview → expor
   Wiring a multi-table surface into the CLI/pipeline orchestrator lands with the
   export/pipeline stories.
 
-Epics 1–4 are complete (source profiling, faithful synthetic data, the data chaos
-monkey — pluggable mutators, all fault families, chaos policy, and the bidirectional
-fault-manifest audit — and privacy & evaluation: PII auto-classification, the
-similarity/outlier privacy filters, and the composite quality & privacy report). The
-Streamlit UI (Epic 5) is designed (see the PRD and architecture spine) but unbuilt —
-Epic 5 is next. The cross-stage pipeline orchestrator (`core/pipeline.py`), the
-generate→privacy-filter wiring, and the multi-table chaos surface remain honestly
-deferred to the pipeline/UI work.
+All five epics are complete: source profiling, faithful synthetic data, the data chaos
+monkey (pluggable mutators, all fault families, chaos policy, and the bidirectional
+fault-manifest audit), privacy & evaluation (PII auto-classification, the
+similarity/outlier privacy filters, and the composite quality & privacy report), and the
+Streamlit UI (`tymi ui` — connect → profile → generate → chaos → reports/export over the
+one shared Config). The cross-stage pipeline orchestrator (`core/pipeline.py`), the
+generate→privacy-filter wiring, wiring `tymi generate` to read `Config.generation`, and
+the multi-table chaos surface remain honestly deferred as post-MVP integration work.
