@@ -8,9 +8,13 @@ parent value** (a PK or any referenced unique column), and declared
 
 Each table is first generated independently by ``generate_faithful`` (marginals +
 correlation + realistic Faker values), then post-processed to enforce the
-constraints against the parents already generated in this run. All randomness
-comes from the injected ``rng`` (AD-4/AD-11); each Dataset keeps its Profile's
-canonical Schema (AD-10).
+constraints against the parents already generated in this run. Each table draws
+from its **own deterministic RNG substream** derived from ``(seed, table_name)``
+(AD-20), so a table's output — rows and FK edges — depends only on its own
+substream and its parents' (position-derived) keys: it is byte-identical when an
+*unrelated* table's row count or the generation order changes. A child's FK edges
+legitimately still track its own parent's row count. Each Dataset keeps its
+Profile's canonical Schema (AD-10).
 
 Enforcement order per table: sample non-self FKs from parents → make the PK unique
 (FK-aware) → publish the table → resolve self-referential FKs → dedupe single-
@@ -32,20 +36,27 @@ import pandas as pd
 from tymi.core.errors import GenerationError
 from tymi.domain.artifacts import Dataset, Profile, Schema
 from tymi.synth.generator import generate_faithful
+from tymi.synth.substreams import table_substream
 
 
 def generate_related(
     profiles: dict[str, Profile],
     *,
     rows: int | dict[str, int],
-    rng: np.random.Generator,
+    seed: int,
 ) -> dict[str, Dataset]:
-    """Generate related tables with referential integrity, keyed by table name."""
+    """Generate related tables with referential integrity, keyed by table name.
+
+    Each table draws from its own deterministic substream derived from ``(seed, table_name)``
+    (AD-20), so a table's rows and FK edges are byte-identical regardless of any other table's
+    row count or the generation order.
+    """
     order = _topological_order(profiles)
     result: dict[str, Dataset] = {}
     for table in order:
         profile = profiles[table]
         n = _rows_for(rows, table)
+        rng = table_substream(seed, table)
         frame = generate_faithful(profile, rows=n, rng=rng).frame.copy()
         schema = profile.schema
         # 1. Point non-self FKs at real parent values (parents are already final).

@@ -39,7 +39,7 @@ def generate_from_spec(spec: Spec) -> dict[str, GatedDataset]:
     profiles = spec_profiles(spec)
     _require_fk_complete(profiles)
     row_counts = {name: ts.rows for name, ts in spec.tables.items()}
-    datasets = generate_related(profiles, rows=row_counts, rng=make_rng(spec.seed))
+    datasets = generate_related(profiles, rows=row_counts, seed=spec.seed)
     gated: dict[str, GatedDataset] = {}
     for name, dataset in datasets.items():
         profile = profiles[name]

@@ -7,7 +7,6 @@ import pandas as pd
 import pytest
 
 from tymi.core.errors import GenerationError
-from tymi.core.rng import make_rng
 from tymi.domain.artifacts import (
     Column,
     Dataset,
@@ -60,7 +59,7 @@ def test_referential_integrity_and_unique_pks() -> None:
     out = generate_related(
         {"orders": _orders(), "users": _users()},  # deliberately child-first input
         rows={"users": 40, "orders": 300},
-        rng=make_rng(0),
+        seed=0,
     )
     users, orders = out["users"].frame, out["orders"].frame
     assert users["id"].is_unique  # AC-2
@@ -71,13 +70,13 @@ def test_referential_integrity_and_unique_pks() -> None:
 
 
 def test_unique_constraint_holds() -> None:
-    out = generate_related({"users": _users()}, rows={"users": 40}, rng=make_rng(0))
+    out = generate_related({"users": _users()}, rows={"users": 40}, seed=0)
     assert out["users"].frame["email"].is_unique  # AC-3
 
 
 def test_schema_preserved() -> None:
     users = _users()
-    out = generate_related({"users": users}, rows={"users": 10}, rng=make_rng(0))
+    out = generate_related({"users": users}, rows={"users": 10}, seed=0)
     assert out["users"].schema == users.schema  # AC-6 / AD-10
 
 
@@ -99,7 +98,7 @@ def test_cycle_raises() -> None:
         ),
     )
     with pytest.raises(GenerationError, match="cyclic"):
-        generate_related({"a": a, "b": b}, rows=5, rng=make_rng(0))
+        generate_related({"a": a, "b": b}, rows=5, seed=0)
 
 
 def test_self_referential_fk() -> None:
@@ -110,7 +109,7 @@ def test_self_referential_fk() -> None:
         primary_key=("id",),
         foreign_keys=(ForeignKey(("manager_id",), "employees", ("id",)),),
     )
-    out = generate_related({"employees": _profile(frame, schema)}, rows=50, rng=make_rng(0))
+    out = generate_related({"employees": _profile(frame, schema)}, rows=50, seed=0)
     emp = out["employees"].frame
     assert emp["id"].is_unique
     assert set(emp["manager_id"]).issubset(set(emp["id"]))  # every manager is an employee
@@ -140,7 +139,7 @@ def test_composite_foreign_key_consistency() -> None:
             foreign_keys=(ForeignKey(("pa", "pb"), "parent", ("a", "b")),),
         ),
     )
-    out = generate_related({"parent": parent, "child": child}, rows=60, rng=make_rng(0))
+    out = generate_related({"parent": parent, "child": child}, rows=60, seed=0)
     p, c = out["parent"].frame, out["child"].frame
     parent_pairs = set(zip(p["a"], p["b"], strict=False))
     child_pairs = set(zip(c["pa"], c["pb"], strict=False))
@@ -149,13 +148,13 @@ def test_composite_foreign_key_consistency() -> None:
 
 def test_missing_row_count_raises() -> None:
     with pytest.raises(GenerationError, match="row count"):
-        generate_related({"users": _users()}, rows={"orders": 10}, rng=make_rng(0))
+        generate_related({"users": _users()}, rows={"orders": 10}, seed=0)
 
 
 def test_deterministic_same_seed() -> None:
     args = {"orders": _orders(), "users": _users()}
-    a = generate_related(args, rows={"users": 40, "orders": 100}, rng=make_rng(7))
-    b = generate_related(args, rows={"users": 40, "orders": 100}, rng=make_rng(7))
+    a = generate_related(args, rows={"users": 40, "orders": 100}, seed=7)
+    b = generate_related(args, rows={"users": 40, "orders": 100}, seed=7)
     for table in a:
         pd.testing.assert_frame_equal(a[table].frame, b[table].frame)
 
@@ -202,7 +201,7 @@ def test_junction_table_unique_and_valid() -> None:
     out = generate_related(
         {"enrollments": _enrollments(), "students": _students(), "courses": _courses()},
         rows={"students": 10, "courses": 6, "enrollments": 40},
-        rng=make_rng(0),
+        seed=0,
     )
     enr = out["enrollments"].frame
     students, courses = out["students"].frame, out["courses"].frame
@@ -219,7 +218,7 @@ def test_junction_capacity_exceeded_raises() -> None:
         generate_related(
             {"enrollments": _enrollments(), "students": _students(), "courses": _courses()},
             rows={"students": 10, "courses": 6, "enrollments": 100},
-            rng=make_rng(0),
+            seed=0,
         )
 
 
@@ -237,7 +236,7 @@ def test_pk_that_is_also_fk_stays_unique() -> None:
     out = generate_related(
         {"profiles": profile, "users": users},
         rows={"users": 40, "profiles": 30},
-        rng=make_rng(0),
+        seed=0,
     )
     prof, u = out["profiles"].frame, out["users"].frame
     assert prof["user_id"].is_unique  # PK-that-is-also-FK stays unique
@@ -249,7 +248,7 @@ def test_surrogate_pk_with_fk_column() -> None:
     out = generate_related(
         {"orders": _orders(), "users": _users()},
         rows={"users": 40, "orders": 200},
-        rng=make_rng(0),
+        seed=0,
     )
     orders, users = out["orders"].frame, out["users"].frame
     assert orders["id"].is_unique
@@ -277,7 +276,7 @@ def test_fk_to_non_pk_unique_column() -> None:
         ),
     )
     out = generate_related(
-        {"parent": parent, "child": child}, rows={"parent": 20, "child": 80}, rng=make_rng(0)
+        {"parent": parent, "child": child}, rows={"parent": 20, "child": 80}, seed=0
     )
     # FK to a non-PK unique column must still resolve to a real parent value
     assert set(out["child"].frame["parent_code"]).issubset(set(out["parent"].frame["code"]))
@@ -292,7 +291,7 @@ def test_numeric_unique_constraint_stays_numeric_and_unique() -> None:
         primary_key=("id",),
         unique_constraints=(("slot",),),
     )
-    out = generate_related({"t": _profile(frame, schema)}, rows={"t": 50}, rng=make_rng(0))
+    out = generate_related({"t": _profile(frame, schema)}, rows={"t": 50}, seed=0)
     slot = out["t"].frame["slot"]
     assert slot.is_unique
     assert pd.api.types.is_numeric_dtype(slot.dtype)  # not coerced to object strings
@@ -302,7 +301,7 @@ def test_fk_column_keeps_integer_dtype() -> None:
     out = generate_related(
         {"orders": _orders(), "users": _users()},
         rows={"users": 40, "orders": 100},
-        rng=make_rng(0),
+        seed=0,
     )
     # FK dtype should follow the parent integer PK, not drift to object
     assert pd.api.types.is_integer_dtype(out["orders"].frame["user_id"].dtype)
@@ -335,7 +334,7 @@ def test_junction_capacity_counts_distinct_values() -> None:
         generate_related(
             {"j": junction, "gp": grp_parent, "courses": _courses()},
             rows={"gp": 10, "courses": 6, "j": 30},
-            rng=make_rng(0),
+            seed=0,
         )
 
 

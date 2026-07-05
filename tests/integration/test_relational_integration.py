@@ -52,7 +52,7 @@ def _assert_relational(adapter: object) -> None:
     out = generate_related(
         {"orders": orders, "customers": customers},  # child-first input on purpose
         rows={"customers": 40, "orders": 300},
-        rng=make_rng(2),
+        seed=2,
     )
     cust, ords = out["customers"].frame, out["orders"].frame
 
