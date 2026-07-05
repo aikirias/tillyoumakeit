@@ -26,9 +26,15 @@ class _FakeAdapter:
 
     def __init__(self) -> None:
         self.loaded: list[str] = []
+        self.streamed: list[str] = []
 
     def load(self, dataset, *, table: str) -> None:
         self.loaded.append(table)
+
+    def load_stream(self, chunks, *, table: str) -> int:
+        rows = sum(len(ds.frame) for ds in chunks)  # consume the chunk generator
+        self.streamed.append(table)
+        return rows
 
 
 def _write_spec(tmp_path, *, environment="nonprod", host="dev-db"):
@@ -108,6 +114,22 @@ def test_provision_command_fails_closed_on_host_mismatch(tmp_path, monkeypatch) 
     assert result.exit_code == 2
     assert "does not match" in result.output
     assert adapter.loaded == []
+
+
+def test_provision_command_stream_flag_reaches_the_pipeline(tmp_path, monkeypatch) -> None:
+    adapter = _FakeAdapter()
+    monkeypatch.setattr(cli_app, "_load_adapter", lambda engine, config: adapter)
+    result = runner.invoke(
+        cli_app.app,
+        [
+            "provision", "--spec", str(_write_spec(tmp_path, host="dev-db")),
+            "--engine", "postgres", "--config", str(_write_config(tmp_path, host="dev-db")),
+            "--stream",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert adapter.streamed == ["customers"]  # went through the streaming path
+    assert adapter.loaded == []  # not the in-memory path
 
 
 def test_provision_command_is_registered() -> None:

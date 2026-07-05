@@ -390,6 +390,12 @@ def provision(
     ),
     engine: str = _ENGINE_OPTION,
     config: Path = _CONFIG_OPTION,
+    stream: bool = typer.Option(
+        False,
+        "--stream/--in-memory",
+        help="Stream the DB chunk-by-chunk (bounded memory, for arbitrarily large DBs). "
+        "Streaming does not overlay fixtures — use the default in-memory path for those.",
+    ),
 ) -> None:
     """Provision a whole obfuscated DB from a Spec into a non-prod destination (AD-19).
 
@@ -397,7 +403,8 @@ def provision(
     guardrail (fail closed on a production destination) → whole-DB faithful generation with the
     per-table leakage gate, shared keys, and pinned fixtures (scan-and-reject) → ``GatedDataset``
     → idempotent clean-replace load → a provisioning report carrying the consistency-unit
-    fingerprint. Credentials come from ``--config`` (the runner), never the Spec.
+    fingerprint. Credentials come from ``--config`` (the runner), never the Spec. ``--stream``
+    provisions with bounded memory for arbitrarily large databases (Phase 2).
     """
     try:
         spec = load_spec(spec_path)
@@ -408,7 +415,7 @@ def provision(
     connection = load_config(config).source.connection
     try:
         _assert_connection_matches_destination(spec.destination, connection)
-        report = run_provision(spec, adapter)
+        report = run_provision(spec, adapter, stream=stream)
     except GuardrailError as exc:
         typer.echo(f"Destination guardrail failed closed: {exc}")
         raise typer.Exit(code=2) from None

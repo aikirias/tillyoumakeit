@@ -35,14 +35,22 @@ def pinned_deps() -> dict[str, str]:
     return result
 
 
-def consistency_fingerprint(spec: Spec, *, deps: dict[str, str] | None = None) -> str:
+def consistency_fingerprint(
+    spec: Spec, *, deps: dict[str, str] | None = None, mode: str = "in_memory"
+) -> str:
     """A stable hex fingerprint over the consistency unit (AD-15).
 
     Hashes the canonical JSON of the Spec's dump (bundled Profiles + seed + fixtures + shared-key
-    decls) together with the pinned dependency versions. Identical units → identical fingerprints;
-    any change to the Spec, a bundled Profile, the seed, the fixtures, or a pinned dep changes it.
-    Pass ``deps`` explicitly for a fully reproducible fingerprint independent of the environment;
-    by default the live installed versions are read.
+    decls) together with the pinned dependency versions and the generation ``mode``. Identical
+    units → identical fingerprints; any change to the Spec, a bundled Profile, the seed, the
+    fixtures, a pinned dep, or the ``mode`` changes it. Pass ``deps`` explicitly for a fully
+    reproducible fingerprint independent of the environment; by default the live installed versions
+    are read.
+
+    ``mode`` (``"in_memory"`` | ``"streaming"``) is part of the unit because the two engines
+    partition the per-table substreams differently and so emit different byte layouts for the same
+    Spec — a team must match the mode (and ``chunk_rows``) to get byte-identical data, and the
+    fingerprint tells the truth about that.
     """
     spec_dump = spec.model_dump(mode="json")
     # The destination is *where* you provision, not what the data *is* — exclude it from the
@@ -51,6 +59,7 @@ def consistency_fingerprint(spec: Spec, *, deps: dict[str, str] | None = None) -
     unit = {
         "spec": spec_dump,
         "deps": deps if deps is not None else pinned_deps(),
+        "mode": mode,
     }
     canonical = json.dumps(unit, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.blake2b(canonical.encode("utf-8"), digest_size=32).hexdigest()

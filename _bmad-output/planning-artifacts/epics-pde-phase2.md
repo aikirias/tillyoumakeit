@@ -45,10 +45,13 @@ no un-gated data reaches a destination.
 
 ### Story P2.4: Out-of-core `provision` + aggregated report
 
-As a self-service provisioner, I want `tymi provision` to stream by default, so that I can provision
-a DB of any size in minutes with bounded memory (AD-19 preserved, AD-22..24).
+As a self-service provisioner, I want `tymi provision --stream` to provision a DB of any size in
+minutes with bounded memory (AD-19 preserved, AD-22..24).
 
-**AC.** `provision` routes through the streaming path (guardrail first, unchanged); the report
-aggregates per-table row counts across chunks + fixtures + fidelity (sampled on the first chunk) +
-the consistency-unit fingerprint. Peak memory is one chunk regardless of total rows (asserted).
-`provision` stays idempotent and callable identically by CLI / CI / DAG.
+**AC.** `provision` can stream **opt-in** via `stream=True` / CLI `--stream` (the in-memory path
+stays the default so fixture-bearing specs keep working; streaming fails closed on fixtures). The
+guardrail runs first, unchanged. In streaming mode the report aggregates per-table row counts across
+chunks + fidelity (sampled on the first chunk) + the consistency-unit fingerprint (which folds in the
+generation `mode`, since streaming and in-memory emit different byte layouts). Peak memory is
+bounded to ~one chunk regardless of total rows. `provision` stays idempotent and callable
+identically by CLI / CI / DAG.
