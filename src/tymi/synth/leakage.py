@@ -127,6 +127,87 @@ def gate_dataset(
     return GatedDataset(sealed, GateReport(columns_checked=checked), key=_GATE_KEY)
 
 
+def scan_and_gate(
+    dataset: Dataset,
+    guard: LeakageGuard | None,
+    *,
+    fixture_mask: np.ndarray | None = None,
+    structural_columns: object = (),
+    classify: Callable[..., dict[str, str]] | None = None,
+) -> GatedDataset:
+    """Scan-and-reject seal (AD-17): verify, never regenerate, then mint a :class:`GatedDataset`.
+
+    Unlike :func:`gate_dataset`, this **never regenerates** — pinned fixtures must survive verbatim.
+    It fails closed (:class:`LeakageError`) if:
+
+    - a **fixture** cell in **any** guarded column collides with a real source value — fixtures are
+      overlaid verbatim, so every guarded column of theirs is scanned, including structural
+      key/shared columns; or
+    - a **generated** cell in a guarded **non-structural** column collides — a safety re-scan (the
+      embedded gate already cleaned these). ``structural_columns`` (PK/FK/shared) are skipped for
+      *generated* rows only, because there they hold synthetic keys that would false-positive
+      against the real-value digests; and
+    - the ``classify`` PII classifier detects PII in the **fixture rows** of a column **not**
+      covered by the guard — an un-guarded-PII bypass. The classifier is run at a match-rate low
+      enough that a **single** PII fixture cell trips it (no minority-row bypass).
+
+    ``fixture_mask`` (a boolean array over the frame) marks the pinned rows.
+    """
+    frame = dataset.frame
+    structural = set(structural_columns)
+    has_fixtures = fixture_mask is not None and bool(np.any(fixture_mask))
+    if guard is not None:
+        for name, digests in guard.columns.items():
+            if name not in frame.columns:
+                continue
+            digest_set = set(digests)
+            if not digest_set:
+                continue
+            # Fixture rows: scan EVERY guarded column (verbatim → could carry a real value).
+            if has_fixtures:
+                fixture_col = frame[name][fixture_mask]
+                _reject_collisions(fixture_col, digest_set, guard.salt, name, "fixture")
+            # Generated rows: scan only non-structural guarded cols (structural = synthetic keys).
+            if name not in structural:
+                generated = frame[name] if fixture_mask is None else frame[name][~fixture_mask]
+                _reject_collisions(generated, digest_set, guard.salt, name, "generated")
+
+    if classify is not None and has_fixtures:
+        fixture_frame = frame[fixture_mask]
+        n_fixtures = int(np.count_nonzero(fixture_mask))
+        # min_match_rate = 1/n → any single PII cell among the fixture rows is detected.
+        detected = classify(
+            Dataset(frame=fixture_frame, schema=dataset.schema), min_match_rate=1.0 / n_fixtures
+        )
+        guarded = set(guard.columns) if guard is not None else set()
+        smuggled = {col: kind for col, kind in detected.items() if col not in guarded}
+        if smuggled:
+            raise LeakageError(
+                f"scan-and-reject: fixture rows carry un-guarded PII {smuggled}; a fixture may not "
+                "introduce PII in a column the guard does not cover (AD-17). Fails closed."
+            )
+
+    sealed = Dataset(frame=frame.copy(deep=True), schema=dataset.schema)
+    checked = (
+        tuple(c for c, digests in guard.columns.items() if c in frame.columns and digests)
+        if guard is not None
+        else ()
+    )
+    return GatedDataset(sealed, GateReport(columns_checked=checked), key=_GATE_KEY)
+
+
+def _reject_collisions(
+    column: pd.Series, digest_set: set[str], salt: str, name: str, kind: str
+) -> None:
+    """Raise :class:`LeakageError` (fail closed) if any ``column`` cell is a real source value."""
+    colliding = _colliding_mask(column, digest_set, salt)
+    if bool(colliding.any()):
+        raise LeakageError(
+            f"scan-and-reject: {int(colliding.sum())} {kind} value(s) in guarded column "
+            f"{name!r} collide with a real source value; the run fails closed (AD-17)."
+        )
+
+
 def _colliding_mask(column: pd.Series, digest_set: set[str], salt: str) -> pd.Series:
     """Boolean mask of non-null cells whose hashed value is in the real set.
 

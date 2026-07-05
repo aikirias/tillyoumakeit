@@ -41,7 +41,17 @@ class LeakageError(TymiError):
 
     Raised when a colliding value in a Sensitive Column cannot be regenerated away
     within the attempt budget; the run **fails closed** rather than emit a real
-    value (NFR-1, AD-7).
+    value (NFR-1, AD-7). Also raised by the fixture scan-and-reject mode (AD-17) when a
+    pinned fixture cell is a real value or un-guarded PII — with no regeneration.
+    """
+
+
+class FixtureError(TymiError):
+    """A pinned fixture is malformed or violates a fixture invariant (AD-17).
+
+    Raised **fail-closed** for an unknown column, a fixture key outside the reserved keyspace
+    block, or a fixture foreign key with no parent row — before any :class:`GatedDataset` is
+    minted.
     """
 
 
