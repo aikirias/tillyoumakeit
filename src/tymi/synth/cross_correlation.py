@@ -23,6 +23,7 @@ from scipy.stats import rankdata
 
 from tymi.core.errors import GenerationError
 from tymi.domain.artifacts import Dataset, LogicalType
+from tymi.synth.substreams import table_substream
 
 _NUMERIC = {LogicalType.INTEGER, LogicalType.FLOAT}
 
@@ -48,13 +49,15 @@ def induce_rank_correlation(
 
 
 def apply_cross_correlations(
-    datasets: dict[str, Dataset], spec, *, rng: np.random.Generator
+    datasets: dict[str, Dataset], spec, *, seed: int
 ) -> dict[str, Dataset]:
     """Apply every declared cross-correlation in the Spec to a copy of ``datasets`` (AD-25).
 
-    ``spec`` is a :class:`~tymi.config.spec.Spec`; tables are processed in sorted order for
-    deterministic use of ``rng``. Inputs are not mutated. Fails closed via
-    :class:`~tymi.core.errors.GenerationError` on a mis-declared correlation.
+    ``spec`` is a :class:`~tymi.config.spec.Spec`. Each table's correlations draw from their **own
+    independent** substream ``(seed, "<table>::xcorr")``, so a change to one table's correlation
+    never perturbs another's (this keeps the incremental-refresh diff, AD-27, sound). Inputs are not
+    mutated. Fails closed via :class:`~tymi.core.errors.GenerationError` on a mis-declared
+    correlation.
     """
     if not any(ts.cross_correlations for ts in spec.tables.values()):
         return datasets
@@ -63,7 +66,11 @@ def apply_cross_correlations(
         for t, ds in datasets.items()
     }
     for table in sorted(spec.tables):
-        for cc in spec.tables[table].cross_correlations:
+        correlations = spec.tables[table].cross_correlations
+        if not correlations:
+            continue
+        rng = table_substream(seed, f"{table}::xcorr")
+        for cc in correlations:
             _apply_one(result, table, cc, rng)
     return result
 

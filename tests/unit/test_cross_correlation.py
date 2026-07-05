@@ -129,7 +129,7 @@ def test_cross_correlation_is_deterministic() -> None:
 
 def test_no_declared_correlation_is_a_no_op() -> None:
     datasets = {"customers": Dataset(frame=pd.DataFrame({"customer_id": [0]}), schema=_CUSTOMERS)}
-    out = apply_cross_correlations(datasets, bootstrap_spec({}), rng=make_rng(0))
+    out = apply_cross_correlations(datasets, bootstrap_spec({}), seed=0)
     assert out is datasets  # short-circuits, no copy
 
 

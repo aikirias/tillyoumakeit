@@ -17,7 +17,6 @@ from __future__ import annotations
 
 from tymi.config.spec import Spec, spec_profiles
 from tymi.core.errors import GenerationError
-from tymi.core.rng import make_rng
 from tymi.domain.artifacts import GatedDataset, Profile, Schema
 from tymi.privacy.classifier import classify_sensitive_columns
 from tymi.synth.cross_correlation import apply_cross_correlations
@@ -46,7 +45,7 @@ def generate_from_spec(spec: Spec) -> dict[str, GatedDataset]:
     # Cross-table single-hop correlation (AD-25): induce declared child↔parent correlations by
     # rank reorder while FK values still equal the parent's generated keys (before shared-key
     # remapping). A no-op when nothing is declared.
-    datasets = apply_cross_correlations(datasets, spec, rng=make_rng(spec.seed))
+    datasets = apply_cross_correlations(datasets, spec, seed=spec.seed)
     # Shared-key emission (AD-16): declared shared columns become source/seed-independent
     # position-derived keys in the non-fixture keyspace, remapping referencing FKs.
     shared_by_table, reserved_by_table = shared_specs(spec)

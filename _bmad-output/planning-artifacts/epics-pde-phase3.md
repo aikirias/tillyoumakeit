@@ -34,7 +34,11 @@ As a self-service provisioner, I want to regenerate only the tables whose inputs
 refreshing a large DB after a small Spec edit is cheap (PDE-17, AD-27).
 
 **AC.** Given a previous Spec and a new Spec, a per-table diff marks a table **dirty** iff its
-Profile, row count, shared-key/fixture decls, or a depended-on global (seed, chunk_rows, deps)
-changed, or an FK ancestor is dirty; a clean table with clean ancestors is **reused**. Regenerated
-tables' position-derived keys still line up with reused tables' FKs (RI preserved). The refresh
-reports regenerated vs reused tables + the new consistency fingerprint.
+Profile, row count, shared-key/reserved/fixture/cross-correlation decls, or a global input (seed,
+chunk_rows) changed; a **key-affecting** parent change (rows/shared/reserved) dirties direct children
+(their FK values move); and a **cross-correlation** parent being dirty dirties the correlated child
+(its data column is reordered against the parent's data). A clean table is **reused** —
+byte-identical to the previous run. Regenerated tables' position-derived keys still line up with
+reused tables' FKs (RI preserved). The refresh reports regenerated / reused / dropped tables + the
+new consistency fingerprint. (Dependency versions are not Spec-resident, so they are not diffed
+here; a dep change moves the fingerprint and the operator re-runs.)
