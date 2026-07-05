@@ -8,11 +8,47 @@ import pytest
 
 from tymi.config.consistency import consistency_fingerprint
 from tymi.config.spec import bootstrap_spec
-from tymi.core.errors import KeyspaceError
+from tymi.core.errors import GenerationError, KeyspaceError
 from tymi.domain.artifacts import Column, Dataset, ForeignKey, LogicalType, Schema
 from tymi.profiling.profiler import profile_dataset
-from tymi.synth.streaming import generate_table_chunks
+from tymi.synth.streaming import ParentKeyRule, generate_table_chunks
 from tymi.synth.substreams import table_substream
+
+_ORDERS_SCHEMA = Schema(
+    columns=(
+        Column("order_id", LogicalType.INTEGER, primary_key=True),
+        Column("customer_id", LogicalType.INTEGER),
+        Column("amount", LogicalType.FLOAT),
+    ),
+    primary_key=("order_id",),
+    foreign_keys=(ForeignKey(("customer_id",), "customers", ("customer_id",)),),
+)
+
+
+def _orders_profile(n=40):
+    rng = np.random.default_rng(1)
+    return profile_dataset(
+        Dataset(
+            frame=pd.DataFrame(
+                {"order_id": range(n), "customer_id": range(n), "amount": rng.normal(0, 1, n)}
+            ),
+            schema=_ORDERS_SCHEMA,
+        ),
+        salt="s",
+    )
+
+
+def _orders_chunks(*, total_rows, chunk_rows, seed=4, fk_rules=None):
+    return pd.concat(
+        [
+            b.frame
+            for b in generate_table_chunks(
+                _orders_profile(), total_rows=total_rows, seed=seed, table="orders",
+                chunk_rows=chunk_rows, fk_rules=fk_rules,
+            )
+        ],
+        ignore_index=True,
+    )
 
 _SCHEMA = Schema(
     columns=(
@@ -197,6 +233,99 @@ def test_composite_pk_is_not_clobbered_to_positions() -> None:
     # not overwritten with 0..n-1, and the two PK columns are not made identical
     assert list(frame["a"]) != list(range(40))
     assert not frame["a"].equals(frame["b"])
+
+
+# --- position-addressable FK resolution (AD-23) -----------------------------
+
+
+def test_fk_points_at_a_surrogate_parent_without_materializing_it() -> None:
+    # parent 'customers' has 500 surrogate keys 0..499; child FKs must all land in that set.
+    rules = {("customers", "customer_id"): ParentKeyRule(total_rows=500, base=0)}
+    frame = _orders_chunks(total_rows=120, chunk_rows=50, fk_rules=rules)
+    assert set(frame["customer_id"]).issubset(set(range(500)))
+    assert len(frame) == 120
+
+
+def test_fk_points_at_a_shared_parent_keyspace() -> None:
+    # parent shared key: base = reserved (e.g. 1000); child FKs land in [1000, 1000+300).
+    rules = {("customers", "customer_id"): ParentKeyRule(total_rows=300, base=1000)}
+    frame = _orders_chunks(total_rows=80, chunk_rows=25, fk_rules=rules)
+    assert set(frame["customer_id"]).issubset(set(range(1000, 1300)))
+
+
+def test_self_referential_fk_resolves_against_own_total() -> None:
+    schema = Schema(
+        columns=(
+            Column("id", LogicalType.INTEGER, primary_key=True),
+            Column("manager_id", LogicalType.INTEGER),
+        ),
+        primary_key=("id",),
+        foreign_keys=(ForeignKey(("manager_id",), "employees", ("id",)),),
+    )
+    profile = profile_dataset(
+        Dataset(frame=pd.DataFrame({"id": range(60), "manager_id": range(60)}), schema=schema),
+        salt="s",
+    )
+    frame = pd.concat(
+        [
+            b.frame
+            for b in generate_table_chunks(
+                profile, total_rows=60, seed=2, table="employees", chunk_rows=20,
+                fk_rules={("employees", "id"): ParentKeyRule(total_rows=60, base=0)},
+            )
+        ],
+        ignore_index=True,
+    )
+    assert set(frame["manager_id"]).issubset(set(frame["id"]))  # every self-FK is a real own id
+
+
+def test_fk_resolution_is_deterministic() -> None:
+    rules = {("customers", "customer_id"): ParentKeyRule(total_rows=500, base=0)}
+    a = _orders_chunks(total_rows=90, chunk_rows=30, seed=9, fk_rules=rules)
+    b = _orders_chunks(total_rows=90, chunk_rows=30, seed=9, fk_rules=rules)
+    pd.testing.assert_frame_equal(a, b)
+
+
+def test_single_column_fk_without_a_rule_fails_closed() -> None:
+    # whole-DB mode (fk_rules provided) with no rule for the FK's parent -> fail closed.
+    with pytest.raises(GenerationError, match="no\\s+position-addressable rule"):
+        _orders_chunks(total_rows=20, chunk_rows=10, fk_rules={})
+
+
+def test_composite_fk_fails_closed() -> None:
+    schema = Schema(
+        columns=(
+            Column("id", LogicalType.INTEGER, primary_key=True),
+            Column("a", LogicalType.INTEGER),
+            Column("b", LogicalType.INTEGER),
+        ),
+        primary_key=("id",),
+        foreign_keys=(ForeignKey(("a", "b"), "parent", ("x", "y")),),
+    )
+    profile = profile_dataset(
+        Dataset(
+            frame=pd.DataFrame({"id": range(20), "a": range(20), "b": range(20)}), schema=schema
+        ),
+        salt="s",
+    )
+    with pytest.raises(GenerationError, match="composite foreign key"):
+        list(
+            generate_table_chunks(
+                profile, total_rows=10, seed=1, table="lines", chunk_rows=5, fk_rules={}
+            )
+        )
+
+
+def test_no_fk_rules_leaves_fks_untouched_single_table_mode() -> None:
+    # fk_rules=None -> single-table mode, FKs not managed (no error, left as generated).
+    frame = _orders_chunks(total_rows=20, chunk_rows=10, fk_rules=None)
+    assert len(frame) == 20
+
+
+def test_empty_parent_leaves_fk_as_generated_no_zero_division() -> None:
+    rules = {("customers", "customer_id"): ParentKeyRule(total_rows=0, base=0)}
+    frame = _orders_chunks(total_rows=15, chunk_rows=10, fk_rules=rules)
+    assert len(frame) == 15  # total_rows=0 parent -> skipped, no divide-by-zero
 
 
 def test_chunk_rows_changes_the_fingerprint() -> None:
