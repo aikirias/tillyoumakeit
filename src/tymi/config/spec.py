@@ -34,6 +34,10 @@ class TableSpec(BaseModel):
 
     #: The pinned Profile as a plain dict (round-trips via profile_to_dict/profile_from_dict).
     profile: dict[str, Any]
+    #: Pinned row count to generate for this table (bootstrap seeds it from the Profile's
+    #: sampled ``row_count``). Pinning it here is what lets AD-16 derive shared keys from row
+    #: position independently of the source — edit to scale a dev DB up or down.
+    rows: int = Field(ge=0)
     #: Columns whose real values must never leak (mirrors the Profile's leakage guard).
     sensitive_columns: list[str] = Field(default_factory=list)
     #: Columns emitted with source-independent shared keys (AD-16) — filled in Story 2.2.
@@ -65,6 +69,7 @@ def bootstrap_spec(
     tables = {
         name: TableSpec(
             profile=profile_to_dict(prof),
+            rows=prof.row_count,
             sensitive_columns=list(prof.leakage_guard.columns) if prof.leakage_guard else [],
         )
         for name, prof in profiles.items()
