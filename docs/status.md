@@ -61,6 +61,44 @@ Wizard exposing the full connect → profile → configure → preview → expor
 | 5.4 | **Chaos policy config + preview** — the Chaos page configures mode/rate/mutators (+ FK confirmation) and previews via the same `generate_faithful` → `apply_policy` path as the CLI `chaos` (single threaded rng, deterministic); the corrupted cells are highlighted from the Fault Manifest (pure `fault_style_frame`). `fully_chaotic` over a table with foreign keys is refused until the confirmation box is ticked (mirrors CLI `--confirm`). The policy is re-validated and written back to `Config.chaos` (YAML round-trips); stable widget keys so a re-preview honors changed selections | ✅ |
 | 5.5 | **Reports view + export** — the Reports page shows the faithful reports (Fidelity + Quality & Privacy, the exact CLI artifacts) or the chaos Fault Manifest, with a "Report for" toggle when both runs are in session; it exports the dataset to csv/json/parquet (byte-identical to the CLI exporter, NFR-4) via a download button, or loads it into the configured engine (`adapter.load`, the CLI `--to sql` path, AD-2). Nothing-generated guidance | ✅ |
 
+---
+
+## PRD 1 — Obfuscated Prod-Like Dev Environments (Phase 1) ✅
+
+Post-MVP capability: provision a **whole**, FK-consistent, fully-obfuscated database into a non-prod
+environment from one command, with **cross-team consistency**, **pinned fixtures**, and a
+**fail-closed guardrail**. See [Provisioning](provisioning.md) for the concepts. Architecture spine
+`architecture/architecture-tymi-pde1-phase1-2026-07-04/` (`AD-13..21` over the MVP's `AD-1..12`);
+per-story records in `_bmad-output/implementation-artifacts/pde1-*.md`. Phase 1 validates the
+cross-team-consistency wedge on the in-memory engine; Phase 2 (out-of-core) and Phase 3 (cross-table
+correlation / subsetting / delta refresh) are deferred.
+
+### Epic 1 — Whole-DB Spec & faithful generation ✅
+
+| Story | Scope | Status |
+| --- | --- | --- |
+| 1.1 | **`GatedDataset` load boundary** (AD-21) — a seal type mintable only by the leakage/scan gate; the provisioning `load` accepts a `GatedDataset` and refuses a raw `Dataset` (`require_gated`), so un-gated data at a destination is a *type* error. Resists `dataclasses.replace` forging; sensitive-safe `repr`. | ✅ |
+| 1.2 | **Whole-DB `Spec` model + auto-bootstrap** (AD-14, `config/spec.py`) — a versioned artifact bundling each table's **pinned Profile** (embedded, offline) + row count + seed + tolerance; `bootstrap_from_source` introspects+samples+profiles every declared table; YAML round-trips; seed-reproducible bootstrap salt. | ✅ |
+| 1.3 | **Whole-DB faithful generation** (`generate_from_spec`, AD-13, `synth/whole_db.py`) — first-wires `generate_related` to produce every table in FK-topological order, each sealed as a `GatedDataset`; same Spec+seed → byte-identical; out-of-spec FK parent fails closed. | ✅ |
+
+### Epic 2 — Cross-team consistency (the wedge) ✅
+
+| Story | Scope | Status |
+| --- | --- | --- |
+| 2.1 | **Per-table RNG substreams** (AD-20, `synth/substreams.py`) — each table draws from a deterministic substream `(seed, table_name)` (hashlib entropy, process-independent), replacing `generate_related`'s single shared RNG; a table's rows and FK edges are byte-identical regardless of an unrelated table's row count or the generation order. | ✅ |
+| 2.2 | **Position-derived shared keys + reserved fixture keyspace** (AD-16, `synth/keys.py`, closes OQ-5) — columns declared `shared` are emitted `reserved_key_block + position` (source- and seed-independent), so two teams with the same pinned row counts get identical join keys; referencing FKs remapped for integrity; fixtures occupy a disjoint reserved block, validated fail-closed; a shared key must be unique and non-composite. | ✅ |
+| 2.3 | **Consistency unit + fingerprint** (AD-15, `config/consistency.py`) — a stable hash over `(Spec + pinned Profiles + seed + pinned deps)`; identical units → identical fingerprint **and** byte-identical output; a changed Spec/Profile/seed/dep changes it; regeneration reuses the bundled Profiles offline, never re-profiling the source. | ✅ |
+
+### Epic 3 — Fixtures & safe self-service provisioning ✅
+
+| Story | Scope | Status |
+| --- | --- | --- |
+| 3.1 | **Pinned fixtures + scan-and-reject** (AD-17, `synth/fixtures.py` + `leakage.scan_and_gate`) — login/test accounts injected **verbatim** in the reserved keyspace, FK-consistent, exempt from regeneration but scanned: fixture rows checked against the full real-value guard **and** a PII classifier (any single PII cell trips it); a real value or un-guarded PII fails closed; adding a fixture logs an attestation; generated rows never collide with fixture keys. | ✅ |
+| 3.2 | **Non-prod destination guardrail** (AD-18, `provision/guardrail.py`, closes OQ-2) — `assert_nonprod_destination` fails closed unless the Spec's destination affirms `environment: nonprod` **and** neither host nor database matches a case-insensitive prod deny-list glob; empty deny-list still requires the affirmation. The `destination` block is excluded from the consistency fingerprint. | ✅ |
+| 3.3 | **One-command `tymi provision --spec`** (AD-19, `provision/pipeline.py`) — the thin composition-adapter pipeline the CLI and any CI/DAG call identically: guardrail → generate → `require_gated` → idempotent clean-replace load → **provisioning report** (rows, fixtures, gated columns, fidelity, consistency-unit fingerprint). The CLI cross-checks the real `--config` connection against the affirmed destination. | ✅ |
+
+---
+
 ## What works today
 
 - `tymi --help` and the full CLI command surface (no stubs remain).
@@ -100,17 +138,31 @@ Wizard exposing the full connect → profile → configure → preview → expor
   correlation metric, all in-house (scipy+numpy; no SDMetrics/copulas BUSL, AD-9).
   `--tolerance` gates a CI build (exit 1 on failure), `--out` exports the JSON, and
   `--data file.parquet` evaluates an externally-produced dataset (Story 2.7).
-- `generate_related(profiles, rows, rng)` (library) — **multi-table referential
+- `generate_related(profiles, rows, seed)` (library) — **multi-table referential
   integrity**: related tables generated parents-before-children with unique PKs and
-  valid FKs (incl. junction/self-referential tables). Verified on real PG + MySQL.
-  Wiring a multi-table surface into the CLI/pipeline orchestrator lands with the
-  export/pipeline stories.
+  valid FKs (incl. junction/self-referential tables), each from its own per-table RNG
+  substream. Verified on real PG + MySQL.
+- `tymi provision --spec dev-env.spec.yaml --engine E --config runner.yaml` — **whole-DB
+  obfuscated provisioning** (PRD 1): bootstrap a versioned `Spec` from a source, then
+  provision the whole FK-consistent, fully-gated database into a **non-prod** destination
+  in one command (runnable in CI/DAG). Cross-team-consistent shared keys, pinned login
+  fixtures (scan-and-reject), a fail-closed non-prod guardrail, and a provisioning report
+  with the consistency-unit fingerprint. See [Provisioning](provisioning.md).
 
-All five epics are complete: source profiling, faithful synthetic data, the data chaos
+All five MVP epics are complete: source profiling, faithful synthetic data, the data chaos
 monkey (pluggable mutators, all fault families, chaos policy, and the bidirectional
 fault-manifest audit), privacy & evaluation (PII auto-classification, the
 similarity/outlier privacy filters, and the composite quality & privacy report), and the
 Streamlit UI (`tymi ui` — connect → profile → generate → chaos → reports/export over the
-one shared Config). The cross-stage pipeline orchestrator (`core/pipeline.py`), the
-generate→privacy-filter wiring, wiring `tymi generate` to read `Config.generation`, and
-the multi-table chaos surface remain honestly deferred as post-MVP integration work.
+one shared Config).
+
+**PRD 1 Phase 1** (post-MVP) is also complete: whole-DB obfuscated dev-environment
+provisioning — the `Spec` model + auto-bootstrap, whole-DB faithful generation, per-table
+RNG substreams, source-independent shared keys, the consistency-unit fingerprint, pinned
+fixtures with scan-and-reject, the non-prod destination guardrail, and the one
+`tymi provision` command with a provisioning report (see [Provisioning](provisioning.md)).
+
+Honestly deferred: the cross-stage pipeline orchestrator (`core/pipeline.py`), the
+generate→privacy-filter wiring, wiring `tymi generate` to read `Config.generation`, the
+multi-table chaos surface, and PRD-1 Phases 2–3 (out-of-core scale; cross-table
+correlation / subsetting / delta refresh).

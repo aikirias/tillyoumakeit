@@ -12,6 +12,7 @@ You drive it from a **CLI**, a **Python library**, or a **web UI** — all three
 ## Documentation
 
 Living docs live in [`docs/`](docs/): [how it works](docs/how-it-works.md),
+[provisioning](docs/provisioning.md) (whole-DB obfuscated dev environments),
 [development](docs/development.md), and [status](docs/status.md). They are kept
 current as the project progresses.
 

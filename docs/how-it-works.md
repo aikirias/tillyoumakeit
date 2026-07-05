@@ -78,4 +78,17 @@ profile from MSSQL, load into PostgreSQL.
   formats/types, and schema/constraint violations under a declarative policy,
   emitting an auditable manifest of every fault it injected.
 
+## From one table to a whole database
+
+Everything above works **per table**. A post-MVP capability lifts it to the **whole
+database**: a versioned **`Spec`** describes every table at once (each with its pinned
+Profile), and `tymi provision --spec` generates the whole FK-consistent, fully-obfuscated
+DB and loads it into a **non-prod** destination — in one command, runnable in CI or an
+Airflow DAG. It adds **cross-team consistency** (two teams get the same synthetic
+entities, via source-independent shared keys), **pinned login/test fixtures** (injected
+verbatim but scanned for real values / PII), a **fail-closed non-prod guardrail**, and a
+**consistency-unit fingerprint** that proves two datasets are the same synthetic reality.
+
+See [Provisioning](provisioning.md) for the concepts and the full pipeline.
+
 See [Status](status.md) for what is implemented today versus designed.
