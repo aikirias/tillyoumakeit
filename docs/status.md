@@ -97,6 +97,29 @@ correlation / subsetting / delta refresh) are deferred.
 | 3.2 | **Non-prod destination guardrail** (AD-18, `provision/guardrail.py`, closes OQ-2) — `assert_nonprod_destination` fails closed unless the Spec's destination affirms `environment: nonprod` **and** neither host nor database matches a case-insensitive prod deny-list glob; empty deny-list still requires the affirmation. The `destination` block is excluded from the consistency fingerprint. | ✅ |
 | 3.3 | **One-command `tymi provision --spec`** (AD-19, `provision/pipeline.py`) — the thin composition-adapter pipeline the CLI and any CI/DAG call identically: guardrail → generate → `require_gated` → idempotent clean-replace load → **provisioning report** (rows, fixtures, gated columns, fidelity, consistency-unit fingerprint). The CLI cross-checks the real `--config` connection against the affirmed destination. | ✅ |
 
+## PRD 1 — Phase 2: Out-of-core streaming ✅
+
+Provision a database from a few MB to hundreds of TB with peak memory bounded to one row-chunk.
+Spine `architecture-tymi-pde-phase2-2026-07-05/` (AD-22..24), no new dependencies. Rides the Phase-1
+seam (per-table substreams + position-derived keys). See [Provisioning](provisioning.md).
+
+| Story | Scope | Status |
+| --- | --- | --- |
+| P2.1 | **Chunk-aware substreams + chunked generation** (AD-22, `synth/substreams.py` + `synth/streaming.py`) — `table_substream(seed, table, chunk)`; `generate_table_chunks` yields a table as bounded-memory blocks with global-position surrogate PK / shared keys; byte-identical for a given `(seed, table, chunk_rows)`; leakage gate per block. New `Spec.chunk_rows` (pinned, in the fingerprint). | ✅ |
+| P2.2 | **Position-addressable FK resolution** (AD-23) — a child block resolves each single-column FK by drawing parent **positions** and mapping them via a `ParentKeyRule` (`base+pos`), so the parent is never materialised; a composite/natural-key FK target fails closed. | ✅ |
+| P2.3 | **Streaming load + `stream_from_spec`** (AD-24) — streams the whole DB as sealed `GatedDataset` chunks in FK order; `EngineAdapter.load_stream` replaces on the first chunk, appends the rest (idempotent). Fixtures fail closed on the streaming path (use in-memory). | ✅ |
+| P2.4 | **Out-of-core `provision --stream`** — `provision(stream=True)` streams chunk-by-chunk (`require_gated` per chunk at the write boundary); the report aggregates rows across chunks; the fingerprint folds in the generation `mode` (in-memory vs streaming emit different byte layouts). | ✅ |
+
+## PRD 1 — Phase 3: Depth & controls ✅
+
+Spine `architecture-tymi-pde-phase3-2026-07-05/` (AD-25..27), in-memory, no new dependencies.
+
+| Story | Scope | Status |
+| --- | --- | --- |
+| P3.1 | **Cross-table single-hop correlation** (AD-25, `synth/cross_correlation.py`) — a declared `CrossCorrelation(child.col ↔ parent.col, ρ)` is induced by a Gaussian-copula rank **reorder** (Spearman ≈ ρ vs the referenced parent value) that preserves the child marginal; both columns numeric; single-hop/self/key declarations fail closed; each table's correlations draw from an independent substream. | ✅ |
+| P3.2 | **Referentially-consistent subsetting** (AD-26, `synth/subset.py`) — keep a deterministic fraction of a root table; a **downward** closure keeps descendants connected to kept roots and an **upward** closure keeps the dimensions they reference (no re-expansion). Keys are not renumbered, so a subset joins to a full sibling dataset; cyclic/composite/no-PK graphs fail closed. | ✅ |
+| P3.3 | **Incremental / delta refresh** (AD-27, `synth/delta.py`) — `delta_refresh(previous, new)` diffs two Specs and regenerates only dirty tables (direct change, key-affecting parent one hop, or a dirty cross-correlation parent); a clean table is byte-identical to the previous run, so the caller reloads only what changed. Reports regenerated / reused / dropped + the new fingerprint. | ✅ |
+
 ---
 
 ## What works today
@@ -156,13 +179,16 @@ similarity/outlier privacy filters, and the composite quality & privacy report),
 Streamlit UI (`tymi ui` — connect → profile → generate → chaos → reports/export over the
 one shared Config).
 
-**PRD 1 Phase 1** (post-MVP) is also complete: whole-DB obfuscated dev-environment
-provisioning — the `Spec` model + auto-bootstrap, whole-DB faithful generation, per-table
-RNG substreams, source-independent shared keys, the consistency-unit fingerprint, pinned
-fixtures with scan-and-reject, the non-prod destination guardrail, and the one
-`tymi provision` command with a provisioning report (see [Provisioning](provisioning.md)).
+**PRD 1 — all three phases** (post-MVP) are complete: whole-DB obfuscated dev-environment
+provisioning. **Phase 1** — the `Spec` model + auto-bootstrap, whole-DB faithful generation,
+per-table RNG substreams, source-independent shared keys, the consistency-unit fingerprint, pinned
+fixtures with scan-and-reject, the non-prod guardrail, and `tymi provision`. **Phase 2** —
+out-of-core streaming (`--stream`): chunked generation, position-addressable FK resolution, and a
+streaming load, so a DB of any size provisions with bounded memory. **Phase 3** — cross-table
+single-hop correlation, referentially-consistent subsetting, and incremental delta refresh. See
+[Provisioning](provisioning.md).
 
 Honestly deferred: the cross-stage pipeline orchestrator (`core/pipeline.py`), the
-generate→privacy-filter wiring, wiring `tymi generate` to read `Config.generation`, the
-multi-table chaos surface, and PRD-1 Phases 2–3 (out-of-core scale; cross-table
-correlation / subsetting / delta refresh).
+generate→privacy-filter wiring, wiring `tymi generate` to read `Config.generation`, and the
+multi-table chaos surface. Within PRD 1: cross-table correlation *over streaming*, multi-hop /
+source-profiled correlation, subsetting over streaming, and whole-DB transactional atomicity.

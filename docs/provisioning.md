@@ -117,17 +117,27 @@ fidelity, plus the consistency-unit fingerprint.
 `tymi.provision` is a **driving/composition adapter**: it composes the synth + engine adapters and
 is forbidden (by import-linter) from being imported by `core`/`ports`/`domain`.
 
-## Scope & what's deferred
+## Scope — all three phases shipped
 
-Phase 1 validates the cross-team-consistency wedge on the current **in-memory** engine at small
-scale. Deferred:
+- **Phase 1** (validated the cross-team-consistency wedge on the in-memory engine): the `Spec`,
+  whole-DB faithful generation, substreams, shared keys, fingerprint, fixtures, guardrail,
+  `tymi provision`.
+- **Phase 2** (out-of-core streaming): `tymi provision --stream` generates and writes the whole DB
+  chunk-by-chunk with peak memory bounded to one chunk — for a DB of any size. Chunked generation
+  (AD-22), FK resolution by parent *position* without loading the parent (AD-23), and a streaming
+  `load_stream` (AD-24). Fixtures are overlaid on the in-memory path; the streaming path fails
+  closed on a fixture-bearing table.
+- **Phase 3** (depth & controls, in-memory): declared **cross-table single-hop correlation** (a
+  child column reordered to track its parent's value, AD-25), **referentially-consistent
+  subsetting** (a smaller valid DB anchored at a root table, keys preserved so it still joins to a
+  full dataset, AD-26), and **incremental delta refresh** (regenerate only the tables whose inputs
+  changed, AD-27).
 
-- **Phase 2** — out-of-core rewrite for arbitrarily large databases (the per-table substreams are
-  the seam the chunked/parallel design extends).
-- **Phase 3** — cross-table statistical correlation, referentially-consistent subsetting, and
-  incremental/delta refresh.
-- **Whole-DB transactional atomicity** — today loads are per-table clean-replace (idempotent, a
-  re-run self-heals); one transaction spanning all tables is out of Phase-1 scope.
+Still deferred: cross-table correlation *over streaming*, multi-hop / source-profiled correlation,
+subsetting over streaming, and whole-DB transactional atomicity (today loads are per-table
+clean-replace — idempotent, a re-run self-heals). Planning artifacts:
+`architecture/architecture-tymi-pde-phase2-2026-07-05/` and `.../architecture-tymi-pde-phase3-2026-07-05/`
+(AD-22..27); story records in `_bmad-output/planning-artifacts/epics-pde-phase{2,3}.md`.
 
 See the planning artifacts under
 `_bmad-output/planning-artifacts/architecture/architecture-tymi-pde1-phase1-2026-07-04/` (spine
