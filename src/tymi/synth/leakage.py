@@ -23,7 +23,14 @@ import numpy as np
 import pandas as pd
 
 from tymi.core.errors import LeakageError
-from tymi.domain.artifacts import Dataset, LeakageGuard, leakage_digest
+from tymi.domain.artifacts import (
+    _GATE_KEY,
+    Dataset,
+    GatedDataset,
+    GateReport,
+    LeakageGuard,
+    leakage_digest,
+)
 
 #: How many times the gate re-draws a colliding cell before failing closed. A
 #: real collision against a synthetic sampler is astronomically rare, so a small
@@ -85,6 +92,39 @@ def enforce_leakage_gate(
     for name, column in updates.items():
         new_frame[name] = column
     return Dataset(frame=new_frame, schema=dataset.schema)
+
+
+def gate_dataset(
+    dataset: Dataset,
+    guard: LeakageGuard | None,
+    *,
+    rng: np.random.Generator,
+    resample: Resampler,
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+) -> GatedDataset:
+    """Run the leakage gate and **seal** the result into a :class:`GatedDataset` (AD-21).
+
+    This is the provisioning-boundary producer: the only public way to obtain a
+    ``GatedDataset``. It enforces the gate (regenerating any real-value collision, or failing
+    closed with :class:`LeakageError`), then wraps the guaranteed-clean Dataset with the
+    module-private key so no un-gated data can be forged past the ``load`` boundary. The
+    per-table :func:`enforce_leakage_gate` stage embedded in ``generate_faithful`` is unchanged.
+    """
+    gated = enforce_leakage_gate(
+        dataset, guard, rng=rng, resample=resample, max_attempts=max_attempts
+    )
+    # Seal an INDEPENDENT copy: the gate is a no-op-returns-same-object for guard=None / no
+    # collision, so without a copy the caller's retained input frame would alias (and could
+    # mutate) the sealed contents. Point-in-time seal (see GatedDataset docstring).
+    sealed = Dataset(frame=gated.frame.copy(deep=True), schema=gated.schema)
+    # Report only the columns the gate ACTUALLY inspected (present in the frame + non-empty
+    # guard) — not every declared guard column.
+    checked = (
+        tuple(c for c, digests in guard.columns.items() if c in sealed.frame.columns and digests)
+        if guard is not None
+        else ()
+    )
+    return GatedDataset(sealed, GateReport(columns_checked=checked), key=_GATE_KEY)
 
 
 def _colliding_mask(column: pd.Series, digest_set: set[str], salt: str) -> pd.Series:

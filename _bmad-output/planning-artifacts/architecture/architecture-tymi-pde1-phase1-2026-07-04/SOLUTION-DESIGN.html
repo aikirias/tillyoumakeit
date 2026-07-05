@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TYMI PRD-1 Phase-1 — Solution Design</title>
+<style>
+  :root { --bg:#0f1115; --card:#171a21; --ink:#e6e9ef; --mut:#9aa4b2; --acc:#5aa9ff; --ok:#4cc38a; --warn:#ffb454; --line:#252a34; }
+  @media (prefers-color-scheme: light) { :root { --bg:#f7f8fa; --card:#fff; --ink:#1c2330; --mut:#5b6472; --acc:#1667d6; --ok:#1a9c63; --warn:#b26a00; --line:#e6e9ef; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+  main { max-width:1000px; margin:0 auto; padding:32px 20px 80px; }
+  h1 { font-size:30px; margin:0 0 4px; }
+  h2 { font-size:21px; margin:34px 0 10px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+  h3 { font-size:16px; margin:20px 0 6px; }
+  .sub { color:var(--mut); margin:0 0 8px; }
+  .tag { display:inline-block; font-size:12px; padding:2px 8px; border-radius:999px; border:1px solid var(--line); color:var(--mut); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin:12px 0; }
+  .grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); }
+  code { background:rgba(127,127,127,.15); padding:1px 5px; border-radius:5px; font-size:13px; }
+  .flow { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .step { background:var(--card); border:1px solid var(--line); border-left:3px solid var(--acc); border-radius:8px; padding:8px 12px; font-size:14px; }
+  .step .ad { color:var(--mut); font-size:12px; }
+  .arrow { color:var(--mut); }
+  .fail { border-left-color:var(--warn); }
+  .ad { border-left:3px solid var(--ok); }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th,td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--mut); font-weight:600; }
+  .k { color:var(--acc); font-weight:600; white-space:nowrap; }
+  ul { margin:6px 0; padding-left:20px; } li { margin:3px 0; }
+  .pill { font-size:12px; padding:1px 7px; border-radius:6px; border:1px solid var(--line); }
+  .p1 { color:var(--ok); border-color:var(--ok); } .p2,.p3 { color:var(--warn); border-color:var(--warn); }
+  .muted { color:var(--mut); font-size:13px; }
+</style>
+</head>
+<body>
+<main>
+  <span class="tag">Architecture · Solution Design · epic-altitude</span>
+  <h1>TYMI PRD-1 Phase-1</h1>
+  <p class="sub">Obfuscated prod-like dev environments — whole-DB, self-service, zero real values.
+  Inherits the MVP spine (AD-1…12, hexagonal) read-only; adds AD-13…21.</p>
+
+  <h2>The bet, in one line</h2>
+  <div class="card">
+    The differentiated value is <strong>not</strong> whole-DB faithful generation (SDV/Tonic do that) —
+    it is <strong>cross-team consistency from one shared, versioned spec with zero real values</strong>.
+    <strong>Phase 1 exists to validate that bet cheaply</strong> (a few tables, two teams, the current
+    in-memory engine) before funding the out-of-core rewrite (Phase 2) or cross-table correlation (Phase 3).
+  </div>
+
+  <h2>Phasing</h2>
+  <div class="grid">
+    <div class="card"><span class="pill p1">Phase 1 — validate the wedge</span><br>
+      Whole-DB FK-consistent generation at small scale, leakage gate, fixtures, cross-team consistency,
+      safe self-service <code>provision</code>. <span class="muted">PDE-1..5, 7..15.</span></div>
+    <div class="card"><span class="pill p2">Phase 2 — scale (rewrite)</span><br>
+      Out-of-core / chunked, table-parallel generation; leakage set → Bloom/disk; BLAS pinning.
+      <span class="muted">NFR-A/B. A rewrite, not an extension.</span></div>
+    <div class="card"><span class="pill p3">Phase 3 — depth & controls</span><br>
+      Cross-table correlation (PDE-6), subsetting (PDE-16), delta refresh (PDE-17).
+      <span class="muted">Each its own project.</span></div>
+  </div>
+
+  <h2>The provisioning pipeline</h2>
+  <p class="muted"><code>tymi.provision</code> is a driving/composition adapter (not core — core imports no adapters, AD-1).
+  The CLI command and any external DAG/CI job call it identically; scheduling stays external.</p>
+  <div class="flow">
+    <div class="step">load Spec<div class="ad">AD-14/15</div></div><span class="arrow">→</span>
+    <div class="step">per-table generate + embedded gate<div class="ad">AD-13, AD-6/7, substreams AD-20</div></div><span class="arrow">→</span>
+    <div class="step">shared-key emission<div class="ad">AD-16</div></div><span class="arrow">→</span>
+    <div class="step">fixtures overlay + scan-and-reject<div class="ad">AD-17</div></div><span class="arrow">→</span>
+    <div class="step ad">GatedDataset<div class="ad">AD-21</div></div><span class="arrow">→</span>
+    <div class="step">non-prod guardrail<div class="ad">AD-18</div></div><span class="arrow">→</span>
+    <div class="step">EngineAdapter.load<div class="ad">AD-2</div></div><span class="arrow">→</span>
+    <div class="step">report + fingerprint<div class="ad">AD-15</div></div>
+  </div>
+  <p class="muted">A production destination or an un-<code>GatedDataset</code> input <strong>fails closed</strong> before any write.</p>
+
+  <h2>The new architecture decisions</h2>
+  <table>
+    <tr><th>AD</th><th>Decision</th><th>Prevents (the divergence)</th></tr>
+    <tr><td class="k">AD-13</td><td>Whole-DB gen first-wires the existing <code>generate_related</code> (topological, FK-aware)</td><td>a second, divergent multi-table generator</td></tr>
+    <tr><td class="k">AD-14</td><td>The <strong>Spec</strong> = one versioned superset of Config (Profiles + fixtures + keys + dest + seed)</td><td>divergent spec formats; where fixtures/sensitive live</td></tr>
+    <tr><td class="k">AD-15</td><td>Identity = <strong>consistency unit</strong> (Spec + pinned Profile <em>artifacts</em> + seed + deps); regenerate offline, never re-profile</td><td>"same spec, drifted source → garbage joins"; a lying fingerprint</td></tr>
+    <tr><td class="k">AD-16</td><td>Shared keys are <strong>position-derived, source- and seed-independent</strong>; fixtures in a declared disjoint reserved block, validated</td><td>cross-team key drift; fixture/key collision</td></tr>
+    <tr><td class="k">AD-17</td><td>Fixtures: inject-verbatim, regenerate-never, <strong>scanned</strong> (guard + PIIClassifier, fail closed) into the GatedDataset</td><td>fixtures as a PII bypass around the gate</td></tr>
+    <tr><td class="k">AD-18</td><td>Provision <strong>fails closed</strong> unless the Spec affirms a non-prod destination (+ prod deny-list); obfuscation never optional</td><td>writing to prod; a soft "obfuscate?" checkbox; two guardrail owners</td></tr>
+    <tr><td class="k">AD-19</td><td><code>provision</code> is a thin composition-adapter pipeline; the CLI &amp; a DAG call it identically</td><td>orchestration creep into core; two flow implementations</td></tr>
+    <tr><td class="k">AD-20</td><td><strong>Per-table RNG substreams</strong> from <code>(seed, table)</code> — a table's output is independent of other tables' row counts/order</td><td>an unrelated table shifting shared RNG → same keys, different relationships → garbage joins</td></tr>
+    <tr><td class="k">AD-21</td><td>The load boundary accepts <strong>only a <code>GatedDataset</code></strong> — un-gated data at a destination is a <em>type</em> error</td><td>post-gen overlays (keys/fixtures) reaching the destination un-scanned</td></tr>
+  </table>
+
+  <h2>What we build (Phase 1)</h2>
+  <ul>
+    <li><code>tymi/config/spec.py</code> — the whole-DB Spec model + auto-bootstrap (bundles Profiles)</li>
+    <li><code>tymi/provision/pipeline.py</code> + <code>guardrail.py</code> — the composition-adapter pipeline + destination guardrail</li>
+    <li><code>tymi/synth/substreams.py</code>, <code>keys.py</code>, <code>fixtures.py</code> — per-table RNG, shared keys, fixtures overlay</li>
+    <li><code>tymi/synth/leakage.py</code> — a scan-and-reject gate mode; <code>tymi/domain/artifacts.py</code> — the <code>GatedDataset</code> type</li>
+    <li><code>tymi/cli/app.py</code> — the <code>provision</code> command (thin call)</li>
+  </ul>
+  <p class="muted">No new runtime dependency; generation/introspection/load reuse shipped code.
+  <code>generate_related</code> exists but has no callers today — this is first-wiring.</p>
+
+  <h2>Decisions still to confirm</h2>
+  <div class="card">
+    <strong>OQ-2 (AD-18) — prod-destination detection.</strong> Drafted: explicit <code>environment: nonprod</code>
+    affirmation in the Spec + a prod deny-list of host/db patterns, fail-closed default. Confirm the exact mechanism for your environment.<br><br>
+    <strong>OQ-5 (AD-16) — shared-key scheme.</strong> Drafted &amp; resolved: <code>key(table, row_position)</code>,
+    disjoint reserved fixture block, disjointness validated. Confirm the reserved-block convention with real fixture authors.
+  </div>
+
+  <p class="muted" style="margin-top:32px">Build substrate: <code>ARCHITECTURE-SPINE.md</code> · Rationale: <code>.memlog.md</code> ·
+  Reviews: <code>review-{rubric,reality,adversarial}.md</code></p>
+</main>
+</body>
+</html>

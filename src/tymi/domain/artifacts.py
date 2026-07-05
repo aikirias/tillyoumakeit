@@ -104,6 +104,79 @@ class Dataset:
     schema: Schema
 
 
+#: Gate-only sentinel (PRD-1 AD-21). The sole holder is ``tymi.synth.leakage``; it is the
+#: token that lets the leakage gate mint a ``GatedDataset``. Not exported.
+_GATE_KEY = object()
+
+
+@dataclass(frozen=True)
+class GateReport:
+    """What the leakage gate inspected while producing a :class:`GatedDataset`.
+
+    ``columns_checked`` is the set of sensitive columns actually gated (present in the frame
+    with a non-empty guard) — the columns the gate really inspected, not merely declared.
+    """
+
+    columns_checked: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, eq=False, init=False, repr=False)
+class GatedDataset:
+    """A point-in-time seal of a :class:`Dataset` proven free of real sensitive values by the
+    leakage gate (AD-21).
+
+    The provisioning ``load`` boundary accepts a ``GatedDataset`` and refuses a raw
+    ``Dataset`` (:func:`require_gated`), so un-gated data reaching a destination is a *type*
+    error, not a matter of discipline. The barrier stops **accidental** construction —
+    including ``dataclasses.replace`` (the gate key is validated at ``__init__`` and never
+    stored, so a field-copying protocol can't resurrect it). It is not a defense against a
+    determined forger reaching into internals. The seal wraps an **independent copy** taken at
+    gate time; identity is by object (``eq=False``), and ``repr`` never dumps cell values
+    (this type carries sensitive columns).
+    """
+
+    dataset: Dataset
+    report: GateReport
+
+    def __init__(self, dataset: Dataset, report: GateReport, *, key: object) -> None:
+        if key is not _GATE_KEY:
+            raise TypeError(
+                "GatedDataset can only be produced by the leakage gate (AD-21); "
+                "do not construct it directly."
+            )
+        object.__setattr__(self, "dataset", dataset)
+        object.__setattr__(self, "report", report)
+
+    def __repr__(self) -> str:  # never dump cell values — sensitive columns live here
+        frame = self.dataset.frame
+        return (
+            f"GatedDataset(rows={len(frame)}, columns={list(frame.columns)}, "
+            f"checked={self.report.columns_checked})"
+        )
+
+    @property
+    def schema(self) -> Schema:
+        """The canonical Schema of the gated data (preserved through the gate, AD-10)."""
+        return self.dataset.schema
+
+    @property
+    def frame(self) -> pd.DataFrame:
+        return self.dataset.frame
+
+
+def require_gated(value: object) -> GatedDataset:
+    """The load boundary (AD-21): return ``value`` if it is a ``GatedDataset``, else fail closed.
+
+    A raw ``Dataset`` (or anything un-gated) raises ``TypeError`` — no un-gated data reaches a
+    destination.
+    """
+    if not isinstance(value, GatedDataset):
+        raise TypeError(
+            f"a GatedDataset is required at the load boundary (AD-21), got {type(value).__name__}"
+        )
+    return value
+
+
 @dataclass(frozen=True)
 class NumericStats:
     min: float
