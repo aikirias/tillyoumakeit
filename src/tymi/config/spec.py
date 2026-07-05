@@ -40,8 +40,12 @@ class TableSpec(BaseModel):
     rows: int = Field(ge=0)
     #: Columns whose real values must never leak (mirrors the Profile's leakage guard).
     sensitive_columns: list[str] = Field(default_factory=list)
-    #: Columns emitted with source-independent shared keys (AD-16) — filled in Story 2.2.
+    #: Columns emitted with source-independent, position-derived shared keys (AD-16).
     shared_keys: list[str] = Field(default_factory=list)
+    #: Size of the low integer keyspace block ``[0, reserved_key_block)`` reserved for pinned
+    #: fixtures (AD-16/OQ-5). Generated shared keys are emitted at/above it; fixtures draw from
+    #: inside it. Defaults to 0 (no fixtures).
+    reserved_key_block: int = Field(default=0, ge=0)
     #: Pinned verbatim fixture rows (AD-17) — filled in Story 3.1.
     fixtures: list[dict[str, Any]] = Field(default_factory=list)
 

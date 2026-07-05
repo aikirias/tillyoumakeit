@@ -27,6 +27,15 @@ class GenerationError(TymiError):
     """Synthetic generation cannot satisfy the request (e.g. a cyclic FK graph)."""
 
 
+class KeyspaceError(GenerationError):
+    """A shared-key / reserved-fixture-keyspace invariant was violated (AD-16, PDE-10).
+
+    Raised **fail-closed** when generated shared keys would overlap the reserved fixture
+    block, a fixture key falls outside it, or a shared column is itself a foreign key —
+    rather than emit keys that collide or break referential integrity across teams.
+    """
+
+
 class LeakageError(TymiError):
     """The leakage gate could not keep a real sensitive value out of the output.
 

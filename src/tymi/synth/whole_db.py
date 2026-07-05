@@ -10,8 +10,9 @@ Each table is leakage-gated *during* generation (the gate is embedded in ``gener
 here we re-run the gate via :func:`~tymi.synth.leakage.gate_dataset` — a no-op on already-clean
 data — solely to **seal** the result through AD-21's sole ``GatedDataset`` producer.
 
-Shared keys (AD-16) and pinned fixtures (AD-17) are *not* applied here; they overlay later in the
-provisioning pipeline. This module is the clean whole-DB faithful baseline.
+Declared shared keys (AD-16) are overlaid here between generation and sealing. Pinned fixtures
+(AD-17) overlay later in the provisioning pipeline (Story 3.1); the reserved keyspace block already
+partitions the keyspace for them.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from tymi.core.errors import GenerationError
 from tymi.core.rng import make_rng
 from tymi.domain.artifacts import GatedDataset, LeakageGuard, Profile, Schema
 from tymi.synth.generator import _make_resampler
+from tymi.synth.keys import apply_shared_keys, shared_specs
 from tymi.synth.leakage import gate_dataset
 from tymi.synth.relational import generate_related
 
@@ -40,6 +42,13 @@ def generate_from_spec(spec: Spec) -> dict[str, GatedDataset]:
     _require_fk_complete(profiles)
     row_counts = {name: ts.rows for name, ts in spec.tables.items()}
     datasets = generate_related(profiles, rows=row_counts, seed=spec.seed)
+    # Shared-key emission (AD-16): declared shared columns become source/seed-independent
+    # position-derived keys in the non-fixture keyspace, remapping referencing FKs. (Fixtures
+    # overlay is Story 3.1; the reserved block already partitions the keyspace for them.)
+    shared_by_table, reserved_by_table = shared_specs(spec)
+    datasets = apply_shared_keys(
+        datasets, shared_by_table=shared_by_table, reserved_by_table=reserved_by_table
+    )
     gated: dict[str, GatedDataset] = {}
     for name, dataset in datasets.items():
         profile = profiles[name]
@@ -50,11 +59,13 @@ def generate_from_spec(spec: Spec) -> dict[str, GatedDataset]:
         # a real one) and the marginal regenerator is PK/FK-unaware, so it could break uniqueness
         # or referential integrity. On the remaining data columns the embedded per-table gate
         # already cleaned them, so this is a genuine no-op: no collision, no rng draw — the
-        # single fresh make_rng(spec.seed) keeps output byte-identical. (Sensitive *keys* are
-        # handled by shared-key generation in Epic 2, not the baseline.)
+        # single fresh make_rng(spec.seed) keeps output byte-identical. Declared shared columns
+        # are likewise excluded: apply_shared_keys just overwrote them with synthetic
+        # position-derived keys, so gating them would be a false positive AND could regenerate
+        # (and thereby break) the cross-team-stable key.
         gated[name] = gate_dataset(
             dataset,
-            _seal_guard(profile.leakage_guard, profile.schema),
+            _seal_guard(profile.leakage_guard, profile.schema, shared_by_table.get(name, ())),
             rng=make_rng(spec.seed),
             resample=_make_resampler(profile, {}),
         )
@@ -74,12 +85,15 @@ def _require_fk_complete(profiles: dict[str, Profile]) -> None:
                 )
 
 
-def _seal_guard(guard: LeakageGuard | None, schema: Schema) -> LeakageGuard | None:
+def _seal_guard(
+    guard: LeakageGuard | None, schema: Schema, shared_columns: object = ()
+) -> LeakageGuard | None:
     """The leakage guard restricted to non-key columns (see ``generate_from_spec``)."""
     if guard is None:
         return None
     key_columns = set(schema.primary_key)
     for fk in schema.foreign_keys:
         key_columns.update(fk.columns)
+    key_columns.update(shared_columns)
     reduced = {c: d for c, d in guard.columns.items() if c not in key_columns}
     return LeakageGuard(salt=guard.salt, algorithm=guard.algorithm, columns=reduced)
