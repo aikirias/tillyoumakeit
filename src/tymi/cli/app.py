@@ -12,13 +12,17 @@ import typer
 
 from tymi.chaos.policy import apply_policy
 from tymi.config import load_config
+from tymi.config.spec import DestinationSpec, load_spec
 from tymi.core.errors import (
     ChaosError,
     ConfigError,
+    ConfigVersionError,
     EngineConnectionError,
     EngineError,
     ExportError,
+    FixtureError,
     GenerationError,
+    GuardrailError,
     LeakageError,
     ProfileError,
     TableNotFoundError,
@@ -40,6 +44,8 @@ from tymi.eval.privacy_report import quality_privacy_report
 from tymi.io.exporters import get_exporter
 from tymi.profiling.profile_io import load_profile, save_profile
 from tymi.profiling.profiler import profile_dataset
+from tymi.provision.guardrail import assert_nonprod_destination
+from tymi.provision.pipeline import provision as run_provision
 from tymi.synth.conditions import parse_conditions
 from tymi.synth.generator import generate_faithful
 
@@ -375,6 +381,73 @@ def _export_dataset(
         typer.echo(str(exc))
         raise typer.Exit(code=1) from None
     typer.echo(f"Wrote {len(dataset.frame)} rows to {out} ({fmt}).")
+
+
+@app.command(name="provision")
+def provision(
+    spec_path: Path = typer.Option(
+        ..., "--spec", exists=True, dir_okay=False, help="Path to a whole-DB Spec YAML."
+    ),
+    engine: str = _ENGINE_OPTION,
+    config: Path = _CONFIG_OPTION,
+) -> None:
+    """Provision a whole obfuscated DB from a Spec into a non-prod destination (AD-19).
+
+    Runs the one composition-adapter pipeline the CLI and any CI job / DAG call identically:
+    guardrail (fail closed on a production destination) → whole-DB faithful generation with the
+    per-table leakage gate, shared keys, and pinned fixtures (scan-and-reject) → ``GatedDataset``
+    → idempotent clean-replace load → a provisioning report carrying the consistency-unit
+    fingerprint. Credentials come from ``--config`` (the runner), never the Spec.
+    """
+    try:
+        spec = load_spec(spec_path)
+    except (ConfigError, ConfigVersionError) as exc:
+        typer.echo(f"Could not load spec: {exc}")
+        raise typer.Exit(code=2) from None
+    adapter = _load_adapter(engine, config)
+    connection = load_config(config).source.connection
+    try:
+        _assert_connection_matches_destination(spec.destination, connection)
+        report = run_provision(spec, adapter)
+    except GuardrailError as exc:
+        typer.echo(f"Destination guardrail failed closed: {exc}")
+        raise typer.Exit(code=2) from None
+    except (LeakageError, FixtureError, GenerationError, ProfileError, EngineError) as exc:
+        typer.echo(f"Provisioning failed: {exc}")
+        raise typer.Exit(code=1) from None
+    typer.echo(report.render())
+
+
+def _assert_connection_matches_destination(destination: object, connection: object) -> None:
+    """Bind the runner's real ``--config`` connection to the Spec's affirmed destination (AD-18).
+
+    The pipeline guardrail affirms ``spec.destination``, but the write goes to the ``--config``
+    connection — so a nonprod-affirmed Spec pointed at a prod connection would still write to prod.
+    This fails closed if the connection is denied by the prod deny-list, or if its host/database
+    does not match the Spec's affirmed destination.
+    """
+    if destination is None or connection is None:
+        return  # the pipeline guardrail fails closed on the missing affirmation
+    # Deny-list the REAL connection target (a prod host is rejected even if the Spec affirms it).
+    assert_nonprod_destination(
+        DestinationSpec(
+            environment=destination.environment,
+            host=connection.host,
+            database=getattr(connection, "database", None),
+        )
+    )
+    if destination.host and destination.host != connection.host:
+        raise GuardrailError(
+            f"config connection host {connection.host!r} does not match the Spec's affirmed "
+            f"destination host {destination.host!r}; fail closed (AD-18)."
+        )
+    dest_db = destination.database
+    conn_db = getattr(connection, "database", None)
+    if dest_db and conn_db and dest_db != conn_db:
+        raise GuardrailError(
+            f"config connection database {conn_db!r} does not match the Spec's affirmed "
+            f"destination database {dest_db!r}; fail closed (AD-18)."
+        )
 
 
 @app.command(name="report")
