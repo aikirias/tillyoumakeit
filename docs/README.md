@@ -6,6 +6,7 @@ page here.
 
 ## Contents
 
+- [Overview](overview.html) — a single-page visual walkthrough of **all** of TYMI (faithful generator, chaos monkey, privacy & eval, reach, hexagonal architecture, test coverage, whole-DB provisioning). Open in a browser; shareable as an Artifact.
 - [How It Works](how-it-works.md) — the concepts and the end-to-end flow (Profile, Config, pipeline, engines).
 - [Provisioning](provisioning.md) — whole-DB obfuscated dev environments: the `Spec`, cross-team consistency, pinned fixtures, the non-prod guardrail, and `tymi provision` (PRD 1, Phase 1).
 - [Development](development.md) — local setup, testing, CI, project layout, and how to add a plugin.

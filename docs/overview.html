@@ -1,0 +1,625 @@
+<title>TYMI · Synthetic Data &amp; Chaos Monkey</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --ground:   #0d1417;
+    --surface:  #121e21;
+    --surface-2:#18282b;
+    --line:     #26393c;
+    --line-soft:#1d2c2f;
+    --ink:      #e3edeb;
+    --ink-dim:  #8ba09e;
+    --ink-mute: #5f7473;
+    --accent:   #48ccc1;
+    --accent-2: #2b7f79;
+    --amber:    #e6b455;
+    --coral:    #ef7059;
+    --shadow:   0 1px 0 rgba(255,255,255,.02), 0 18px 40px -24px rgba(0,0,0,.7);
+
+    --mono: "JetBrains Mono","SF Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans: ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+
+    --maxw: 1080px;
+    --step-0: 1rem;
+    --step-1: 1.15rem;
+    --step-2: 1.48rem;
+    --step-3: 2.05rem;
+    --step-4: clamp(2.3rem, 5vw, 3.55rem);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --ground:#f6f8f7; --surface:#ffffff; --surface-2:#eef3f1; --line:#dbe4e1; --line-soft:#e7edeb;
+      --ink:#12201e; --ink-dim:#536362; --ink-mute:#7f908e;
+      --accent:#12867e; --accent-2:#0f6d66; --amber:#a8761a; --coral:#c8503a;
+      --shadow:0 1px 0 rgba(0,0,0,.02),0 16px 34px -26px rgba(20,40,38,.4);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#0d1417; --surface:#121e21; --surface-2:#18282b; --line:#26393c; --line-soft:#1d2c2f;
+    --ink:#e3edeb; --ink-dim:#8ba09e; --ink-mute:#5f7473;
+    --accent:#48ccc1; --accent-2:#2b7f79; --amber:#e6b455; --coral:#ef7059;
+    --shadow:0 1px 0 rgba(255,255,255,.02),0 18px 40px -24px rgba(0,0,0,.7);
+  }
+  :root[data-theme="light"] {
+    --ground:#f6f8f7; --surface:#ffffff; --surface-2:#eef3f1; --line:#dbe4e1; --line-soft:#e7edeb;
+    --ink:#12201e; --ink-dim:#536362; --ink-mute:#7f908e;
+    --accent:#12867e; --accent-2:#0f6d66; --amber:#a8761a; --coral:#c8503a;
+    --shadow:0 1px 0 rgba(0,0,0,.02),0 16px 34px -26px rgba(20,40,38,.4);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--sans); font-size: var(--step-0); line-height: 1.62;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 clamp(1.1rem, 4vw, 2.4rem); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; text-underline-offset: 3px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+  em { font-style: italic; color: var(--ink); }
+
+  .mono { font-family: var(--mono); }
+  .eyebrow { font-family: var(--mono); font-size: .72rem; letter-spacing: .18em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+  .eyebrow.coral { color: var(--coral); }
+  h1, h2, h3 { text-wrap: balance; line-height: 1.12; margin: 0; }
+  h2 { font-size: var(--step-3); letter-spacing: -.015em; font-weight: 680; }
+  h3 { font-size: var(--step-1); letter-spacing: -.01em; font-weight: 640; }
+  p { margin: 0; }
+  .lede { color: var(--ink-dim); font-size: var(--step-1); max-width: 60ch; }
+
+  header.bar { position: sticky; top: 0; z-index: 20; backdrop-filter: blur(10px);
+    background: color-mix(in srgb, var(--ground) 82%, transparent); border-bottom: 1px solid var(--line-soft); }
+  .bar .wrap { display: flex; align-items: center; gap: 1.5rem; height: 58px; }
+  .brand { font-family: var(--mono); font-weight: 700; letter-spacing: .02em; font-size: 1.02rem; display: flex; align-items: center; gap: .55rem; }
+  .brand .seal { color: var(--accent); }
+  .bar nav { margin-left: auto; display: flex; gap: 1.25rem; font-size: .85rem; }
+  .bar nav a { color: var(--ink-dim); }
+  .bar nav a:hover { color: var(--ink); text-decoration: none; }
+  @media (max-width: 860px){ .bar nav { display: none; } }
+
+  section { padding: clamp(3.2rem, 7vw, 5.4rem) 0; border-top: 1px solid var(--line-soft); }
+  section:first-of-type { border-top: 0; }
+  .head-block { max-width: 62ch; margin-bottom: 2.2rem; }
+  .head-block h2 { margin-top: .7rem; }
+  .head-block p { margin-top: .9rem; color: var(--ink-dim); }
+
+  /* hero */
+  .hero { padding-top: clamp(2.6rem, 6vw, 4.4rem); }
+  .hero-grid { display: grid; grid-template-columns: 1.02fr .98fr; gap: clamp(1.6rem, 4vw, 2.8rem); align-items: center; }
+  @media (max-width: 920px){ .hero-grid { grid-template-columns: 1fr; } }
+  .hero h1 { font-family: var(--mono); font-size: var(--step-4); font-weight: 720; letter-spacing: -.03em; margin: 1.05rem 0 1.15rem; }
+  .hero h1 .hl { color: var(--accent); }
+  .hero h1 .br { color: var(--coral); }
+  .badges { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1.6rem; }
+  .badge { font-family: var(--mono); font-size: .74rem; padding: .34rem .66rem; border: 1px solid var(--line); border-radius: 999px; color: var(--ink-dim); background: var(--surface); }
+  .badge b { color: var(--ink); font-weight: 600; }
+
+  .term { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
+  .term-head { display: flex; align-items: center; gap: .5rem; padding: .7rem .9rem; border-bottom: 1px solid var(--line-soft); }
+  .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--line); }
+  .dot.a { background: color-mix(in srgb, var(--coral) 70%, var(--surface)); }
+  .dot.b { background: color-mix(in srgb, var(--amber) 70%, var(--surface)); }
+  .dot.c { background: color-mix(in srgb, var(--accent) 70%, var(--surface)); }
+  .term-head .fn { margin-left: .4rem; font-family: var(--mono); font-size: .76rem; color: var(--ink-mute); }
+  .term pre { margin: 0; padding: 1rem 1.1rem 1.2rem; font-family: var(--mono); font-size: .8rem; line-height: 1.75; overflow-x: auto; color: var(--ink-dim); tab-size: 2; }
+  .term pre .cmd { color: var(--ink); }
+  .term pre .p { color: var(--accent); }
+  .term pre .ok { color: var(--accent); }
+  .term pre .warn { color: var(--coral); }
+  .term pre .amber { color: var(--amber); }
+  .term pre .dim { color: var(--ink-mute); }
+
+  /* two modes */
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; }
+  @media (max-width: 780px){ .split { grid-template-columns: 1fr; } }
+  .mode { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); padding: 1.5rem 1.5rem 1.6rem; position: relative; overflow: hidden; }
+  .mode::before { content:""; position: absolute; inset: 0 0 auto 0; height: 3px; }
+  .mode.faithful::before { background: var(--accent); }
+  .mode.chaos::before { background: var(--coral); }
+  .mode .k { font-family: var(--mono); font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; }
+  .mode.faithful .k { color: var(--accent); }
+  .mode.chaos .k { color: var(--coral); }
+  .mode h3 { margin: .5rem 0 .55rem; font-size: 1.3rem; }
+  .mode p { color: var(--ink-dim); font-size: .95rem; }
+  .mode ul { margin: 1rem 0 0; padding: 0; list-style: none; display: grid; gap: .5rem; }
+  .mode li { font-size: .88rem; color: var(--ink-dim); padding-left: 1.25rem; position: relative; }
+  .mode li::before { content: "▸"; position: absolute; left: 0; }
+  .mode.faithful li::before { color: var(--accent); }
+  .mode.chaos li::before { color: var(--coral); }
+
+  /* mvp pipe */
+  .pipescroll { overflow-x: auto; padding-bottom: .4rem; }
+  .pipe { display: flex; align-items: stretch; gap: 0; min-width: 640px; }
+  .pnode { flex: 1; text-align: center; border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: .8rem .5rem; }
+  .pnode .pl { font-family: var(--mono); font-size: .82rem; color: var(--ink); font-weight: 600; }
+  .pnode .ps { font-size: .72rem; color: var(--ink-mute); margin-top: .18rem; }
+  .pnode.dual { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+  .parrow { align-self: center; color: var(--ink-mute); padding: 0 .5rem; font-family: var(--mono); }
+
+  /* feature grids */
+  .feat { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+  @media (max-width: 900px){ .feat { grid-template-columns: repeat(2,1fr); } }
+  @media (max-width: 620px){ .feat { grid-template-columns: 1fr; } }
+  .fcard { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 1.2rem 1.25rem; transition: border-color .18s ease, transform .18s ease; }
+  .fcard:hover { transform: translateY(-2px); }
+  .fcard.f:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .fcard.c:hover { border-color: color-mix(in srgb, var(--coral) 45%, var(--line)); }
+  .fcard .tag { font-family: var(--mono); font-size: .68rem; letter-spacing: .09em; text-transform: uppercase; }
+  .fcard.f .tag { color: var(--accent); }
+  .fcard.c .tag { color: var(--coral); }
+  .fcard.n .tag { color: var(--ink-mute); }
+  .fcard h3 { margin: .45rem 0 .4rem; font-size: 1.02rem; }
+  .fcard p { color: var(--ink-dim); font-size: .89rem; }
+
+  /* provisioning pipeline */
+  .flow { display: grid; gap: 0; }
+  .stage { display: grid; grid-template-columns: 3rem 1fr; gap: 1.1rem; padding: .3rem 0; }
+  .rail { position: relative; display: flex; justify-content: center; }
+  .rail::before { content:""; position: absolute; top:0; bottom:0; width:2px; background: var(--line); left:50%; transform: translateX(-50%); }
+  .stage:first-child .rail::before { top: 1.5rem; }
+  .stage:last-child .rail::before { bottom: calc(100% - 1.5rem); }
+  .node { position: relative; z-index: 1; margin-top: .5rem; width: 2rem; height: 2rem; border-radius: 50%; display: grid; place-items: center; font-family: var(--mono); font-size: .82rem; font-weight: 600; background: var(--surface); color: var(--ink-dim); border: 1px solid var(--line); }
+  .node.accent { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent); }
+  .node.coral  { border-color: var(--coral);  color: var(--coral);  box-shadow: 0 0 0 4px color-mix(in srgb, var(--coral) 12%, transparent); }
+  .node.amber  { border-color: var(--amber);  color: var(--amber);  box-shadow: 0 0 0 4px color-mix(in srgb, var(--amber) 12%, transparent); }
+  .stage .body { padding: .3rem 0 1.3rem; }
+  .stage .body h3 { display: flex; align-items: baseline; gap: .55rem; flex-wrap: wrap; font-size: 1.04rem; }
+  .ad { font-family: var(--mono); font-size: .66rem; letter-spacing: .05em; color: var(--ink-mute); border: 1px solid var(--line); border-radius: 4px; padding: .06rem .36rem; }
+  .stage .body p { color: var(--ink-dim); font-size: .9rem; margin-top: .3rem; max-width: 58ch; }
+
+  /* consistency */
+  .consist { display: grid; grid-template-columns: 1.1fr .9fr; gap: clamp(1.4rem,4vw,2.6rem); align-items: center; }
+  @media (max-width: 900px){ .consist { grid-template-columns: 1fr; } }
+  .fingerprint { border: 1px solid var(--line); border-radius: 14px; background: linear-gradient(180deg, var(--surface-2), var(--surface)); padding: 1.5rem; box-shadow: var(--shadow); }
+  .teamrow { display: flex; align-items: center; gap: .8rem; font-family: var(--mono); font-size: .82rem; }
+  .chip { flex: 1; border: 1px solid var(--line); border-radius: 8px; padding: .6rem .7rem; background: var(--ground); }
+  .chip .t { color: var(--ink-dim); font-size: .72rem; }
+  .chip .h { color: var(--accent); font-weight: 600; }
+  .eq { color: var(--ink-mute); font-size: 1.3rem; }
+  .fp-note { margin-top: 1rem; font-family: var(--mono); font-size: .74rem; color: var(--ink-mute); text-align: center; }
+
+  /* spec code */
+  .code { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
+  .code pre { margin: 0; padding: 1.1rem 1.25rem; font-family: var(--mono); font-size: .8rem; line-height: 1.7; overflow-x: auto; color: var(--ink-dim); }
+  .code .k { color: var(--accent); }
+  .code .c { color: var(--ink-mute); font-style: italic; }
+  .code .amber { color: var(--amber); }
+  .code .coral { color: var(--coral); }
+  .code .s { color: var(--ink); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 1.4rem; align-items: start; }
+  @media (max-width: 900px){ .two { grid-template-columns: 1fr; } }
+
+  /* scope */
+  .phase { display: grid; grid-template-columns: repeat(4,1fr); gap: 1rem; }
+  @media (max-width: 900px){ .phase { grid-template-columns: repeat(2,1fr); } }
+  @media (max-width: 560px){ .phase { grid-template-columns: 1fr; } }
+  .pcard { border: 1px dashed var(--line); border-radius: 12px; padding: 1.15rem 1.2rem; }
+  .pcard.done { border-style: solid; background: var(--surface); }
+  .pcard .lab { font-family: var(--mono); font-size: .7rem; letter-spacing: .07em; text-transform: uppercase; }
+  .pcard.done .lab { color: var(--accent); }
+  .pcard:not(.done) .lab { color: var(--ink-mute); }
+  .pcard h3 { margin: .45rem 0 .38rem; font-size: .98rem; }
+  .pcard p { color: var(--ink-dim); font-size: .86rem; }
+  .pcard .status { margin-top: .7rem; font-family: var(--mono); font-size: .73rem; }
+  .pcard.done .status { color: var(--accent); }
+  .pcard:not(.done) .status { color: var(--ink-mute); }
+
+  /* architecture */
+  .archpanel { border:1px solid var(--line); border-radius:16px; background:var(--surface); padding: clamp(1.4rem,3vw,2.2rem); box-shadow: var(--shadow); }
+  .arch-band { text-align:center; }
+  .arch-label { font-family:var(--mono); font-size:.66rem; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-mute); margin-bottom:.7rem; }
+  .chiprow { display:flex; flex-wrap:wrap; justify-content:center; gap:.5rem; }
+  .achip { font-family:var(--mono); font-size:.77rem; padding:.4rem .7rem; border:1px solid var(--line); border-radius:8px; background:var(--ground); color:var(--ink-dim); white-space:nowrap; }
+  .achip.drive { border-color: color-mix(in srgb, var(--accent) 42%, var(--line)); color: var(--ink); }
+  .achip.db { border-color: color-mix(in srgb, var(--amber) 42%, var(--line)); }
+  .arch-mid { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:clamp(.7rem,3vw,1.8rem); margin: 1.3rem 0; }
+  @media (max-width:760px){ .arch-mid { grid-template-columns:1fr; } }
+  .arch-col { display:grid; gap:.5rem; justify-items:center; }
+  .hex { width: 220px; max-width: 62vw; aspect-ratio: 1 / .9; margin:0 auto; display:grid; place-items:center; text-align:center; padding:1rem;
+    background: linear-gradient(180deg, var(--surface-2), var(--surface)); border:1.5px solid var(--accent);
+    clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); }
+  .hex .ht { font-family:var(--mono); font-weight:700; font-size:.9rem; color:var(--accent); letter-spacing:.01em; }
+  .hex .hs { font-size:.71rem; color:var(--ink-dim); margin-top:.35rem; line-height:1.4; }
+  .arch-conn { text-align:center; color:var(--ink-mute); font-family:var(--mono); font-size:.85rem; margin:.15rem 0; }
+  .arch-cap { margin:1.3rem auto 0; text-align:center; font-size:.85rem; color:var(--ink-dim); max-width:66ch; }
+  .arch-cap .mono { color:var(--accent); }
+
+  /* coverage */
+  .covstat { display:flex; gap:1.8rem; flex-wrap:wrap; margin-bottom:1.9rem; }
+  .covstat .cn { font-family:var(--mono); font-size:1.7rem; font-weight:700; color:var(--ink); font-variant-numeric: tabular-nums; }
+  .covstat .cd { font-size:.77rem; color:var(--ink-mute); }
+  .covwrap { display:grid; gap:.8rem; }
+  .covrow { display:grid; grid-template-columns: 12rem 1fr 3.2rem; align-items:center; gap:1rem; }
+  @media (max-width:640px){ .covrow { grid-template-columns: 8.5rem 1fr 2.8rem; } }
+  .covrow .cl { font-size:.9rem; color:var(--ink); }
+  .covrow .cl small { display:block; color:var(--ink-mute); font-size:.7rem; font-family:var(--mono); margin-top:.05rem; }
+  .covbar { height:9px; border-radius:999px; background:var(--surface-2); overflow:hidden; border:1px solid var(--line-soft); }
+  .covbar span { display:block; height:100%; background: linear-gradient(90deg, var(--accent-2), var(--accent)); border-radius:999px; }
+  .covpct { font-family:var(--mono); font-size:.84rem; color:var(--accent); text-align:right; font-variant-numeric: tabular-nums; }
+  .covnote { margin-top:1.5rem; border:1px dashed var(--line); border-radius:10px; padding:.9rem 1.1rem; font-size:.85rem; color:var(--ink-dim); }
+  .covnote b { color:var(--ink); }
+
+  footer { padding: 2.6rem 0 3.4rem; border-top: 1px solid var(--line-soft); color: var(--ink-mute); font-size: .84rem; }
+  footer .wrap { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+  footer .mono { color: var(--ink-dim); }
+
+  .reveal { opacity: 0; transform: translateY(14px); transition: opacity .55s ease, transform .55s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce){ .reveal { opacity: 1; transform: none; transition: none; } }
+</style>
+
+<header class="bar">
+  <div class="wrap">
+    <span class="brand"><span class="seal">◈</span> TYMI</span>
+    <nav>
+      <a href="#modes">Two modes</a>
+      <a href="#faithful">Faithful</a>
+      <a href="#chaos">Chaos</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#reach">Reach</a>
+      <a href="#architecture">Arch</a>
+      <a href="#coverage">Tested</a>
+      <a href="#provision">Provisioning</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <!-- HERO -->
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <span class="eyebrow">Fake It Till You Make It · synthetic data platform</span>
+        <h1>Statistically <span class="hl">indistinguishable</span><br>— or deliberately <span class="br">broken</span>.</h1>
+        <p class="lede">TYMI learns the statistical signature of a real table and generates synthetic data that looks
+          identical but carries <em>no real values</em> — or, on demand, produces controlled, auditable <em>broken</em>
+          data to stress-test your pipelines. Then it provisions a whole obfuscated database in one command.</p>
+        <div class="badges">
+          <span class="badge">MVP · <b>5</b> epics</span>
+          <span class="badge">PRD 1 · whole-DB provisioning</span>
+          <span class="badge"><b>637</b> tests green</span>
+          <span class="badge"><b>4</b> engines · any→any</span>
+        </div>
+      </div>
+      <div class="term reveal">
+        <div class="term-head"><span class="dot a"></span><span class="dot b"></span><span class="dot c"></span><span class="fn">tymi</span></div>
+<pre><span class="p">$</span> <span class="cmd">tymi profile customers -c db.yaml -o customers.profile.yaml</span>
+  <span class="ok">✓</span> 18 columns · correlations · PII: <span class="amber">email, ssn</span>
+
+<span class="p">$</span> <span class="cmd">tymi generate -p customers.profile.yaml -n 100000 --to parquet</span>
+  <span class="ok">✓</span> 100000 faithful rows · leakage gate: <span class="ok">0 real values</span>
+
+<span class="p">$</span> <span class="cmd">tymi chaos -p customers.profile.yaml -c chaos.yaml --audit</span>
+  <span class="warn">⚠</span> 6 fault families injected · <span class="dim">manifest verified (bidirectional)</span>
+
+<span class="p">$</span> <span class="cmd">tymi provision --spec dev-env.spec.yaml -e postgres -c run.yaml</span>
+  <span class="ok">✓</span> whole DB → <span class="amber">'nonprod'</span> · fingerprint <span class="dim">7f3a1c…c1e9</span></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- TWO MODES -->
+  <section id="modes">
+    <div class="wrap">
+      <div class="head-block reveal">
+        <span class="eyebrow">The core duality</span>
+        <h2>Two capabilities, equal weight, one engine.</h2>
+        <p>Both read the same Profile and the same declarative config. One makes data you can trust; the other makes
+          the data that breaks systems in production — so you catch it first.</p>
+      </div>
+      <div class="split">
+        <div class="mode faithful reveal">
+          <span class="k">Faithful Generator</span>
+          <h3>Real, minus the risk</h3>
+          <p>Reproduces distributions, correlations, and referential integrity — statistically identical, provably free of real values.</p>
+          <ul>
+            <li>Marginals + in-house Gaussian copula for correlations</li>
+            <li>Multi-table FK integrity, realistic Faker values</li>
+            <li>Leakage gate: exact-membership check, fail-closed</li>
+            <li>Conditional &amp; seeded — byte-identical per seed</li>
+          </ul>
+        </div>
+        <div class="mode chaos reveal">
+          <span class="k">Data Chaos Monkey</span>
+          <h3>Broken on purpose</h3>
+          <p>Systematically injects out-of-distribution, malformed, and schema-breaking data under a declarative policy — with a full audit of every fault.</p>
+          <ul>
+            <li>Out-of-distribution &amp; format / type violations</li>
+            <li>Schema &amp; constraint breakage (orphan FKs, dup keys…)</li>
+            <li>Mixed-rate or fully-chaotic policy</li>
+            <li>Bidirectional fault-manifest audit</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PIPELINE OVERVIEW -->
+  <section id="flow">
+    <div class="wrap">
+      <div class="head-block reveal">
+        <span class="eyebrow">End to end</span>
+        <h2>Connect once. Everything downstream reads a Profile.</h2>
+        <p>The Profile is a statistical <em>description</em> — never raw values — so you produce it once and generate,
+          faithful or chaotic, offline and anywhere. No real data ever leaves the source.</p>
+      </div>
+      <div class="pipescroll reveal">
+        <div class="pipe">
+          <div class="pnode"><div class="pl">Connect</div><div class="ps">4 engines</div></div>
+          <div class="parrow">→</div>
+          <div class="pnode"><div class="pl">Profile</div><div class="ps">stats · PII</div></div>
+          <div class="parrow">→</div>
+          <div class="pnode dual"><div class="pl">Generate</div><div class="ps">faithful | chaos</div></div>
+          <div class="parrow">→</div>
+          <div class="pnode"><div class="pl">Gate</div><div class="ps">leakage · privacy</div></div>
+          <div class="parrow">→</div>
+          <div class="pnode"><div class="pl">Evaluate</div><div class="ps">fidelity · audit</div></div>
+          <div class="parrow">→</div>
+          <div class="pnode"><div class="pl">Export</div><div class="ps">file · SQL</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAITHFUL -->
+  <section id="faithful">
+    <div class="wrap">
+      <div class="head-block reveal">
+        <span class="eyebrow">Faithful Generator</span>
+        <h2>Statistically real, not just plausible.</h2>
+      </div>
+      <div class="feat">
+        <div class="fcard f reveal"><span class="tag">Distributions</span><h3>Marginal synthesis</h3><p>Per-column reproduction from the Profile: histogram inverse-transform, category frequencies, datetime range, length-faithful text. Nulls preserved.</p></div>
+        <div class="fcard f reveal"><span class="tag">Correlation</span><h3>In-house Gaussian copula</h3><p>Numeric cross-column correlations (Spearman) preserved with a hand-rolled copula — no SDV/Copulas (BUSL license excluded).</p></div>
+        <div class="fcard f reveal"><span class="tag">Integrity</span><h3>Referential integrity</h3><p><span class="mono">generate_related</span> builds tables parents-before-children with unique PKs and valid FKs, incl. junction &amp; self-referential.</p></div>
+        <div class="fcard f reveal"><span class="tag">Control</span><h3>Conditional &amp; seeded</h3><p><span class="mono">--where</span> conditions a column (equality, range, set); 100% of rows satisfy it while others keep their shape. Same seed → byte-identical.</p></div>
+        <div class="fcard f reveal"><span class="tag">Privacy</span><h3>Leakage gate</h3><p>Sensitive columns hashed (keyed BLAKE2b) into a guard; every generated value is checked against the real set, regenerated on collision, fail-closed otherwise.</p></div>
+        <div class="fcard f reveal"><span class="tag">Realism</span><h3>Realistic values</h3><p>Text that looks like email / name / phone / id gets coherent Faker values, so the output reads like real records — not noise.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CHAOS -->
+  <section id="chaos">
+    <div class="wrap">
+      <div class="head-block reveal">
+        <span class="eyebrow coral">Data Chaos Monkey · the differentiator</span>
+        <h2>The malformed data your test suite never covers.</h2>
+        <p>Every fault is deterministic, parameterised, and recorded in a Fault Manifest — so a broken row is a
+          <em>designed</em> test case, not a surprise.</p>
+      </div>
+      <div class="feat">
+        <div class="fcard c reveal"><span class="tag">Engine</span><h3>Pluggable mutators</h3><p>Mutators are discovered from the <span class="mono">tymi.mutators</span> entry-point group and run as an ordered chain, each merging its manifest. A new fault type needs zero core changes.</p></div>
+        <div class="fcard c reveal"><span class="tag">Out-of-distribution</span><h3>Outlier injection</h3><p>Pushes a configurable proportion of numeric/datetime cells out of range (<span class="mono">max + magnitude·span</span>), integer-safe and null-preserving.</p></div>
+        <div class="fcard c reveal"><span class="tag">Format &amp; type</span><h3>Value violations</h3><p>Five toggleable faults: <span class="mono">text_in_numeric</span>, <span class="mono">invalid_date</span>, <span class="mono">broken_encoding</span>, <span class="mono">oversized_string</span>, <span class="mono">illegal_null</span>.</p></div>
+        <div class="fcard c reveal"><span class="tag">Schema &amp; constraint</span><h3>Structural breakage</h3><p>Six structural faults: <span class="mono">missing / extra / renamed</span> field, <span class="mono">changed_type</span>, <span class="mono">duplicate_keys</span> (composite-aware), <span class="mono">orphan_fk</span>.</p></div>
+        <div class="fcard c reveal"><span class="tag">Policy</span><h3>Declarative chaos</h3><p><span class="mono">mixed</span> corrupts a <span class="mono">rate</span> fraction of rows and leaves the rest faithful; <span class="mono">fully_chaotic</span> breaks the whole table (and demands <span class="mono">--confirm</span> over FKs).</p></div>
+        <div class="fcard c reveal"><span class="tag">Audit</span><h3>Bidirectional manifest</h3><p><span class="mono">--audit</span> verifies both directions: every listed fault materialised, and every change vs the faithful baseline is listed. A manifest that lies fails the build.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRIVACY & EVAL -->
+  <section id="privacy">
+    <div class="wrap">
+      <div class="head-block reveal">
+        <span class="eyebrow">Privacy &amp; evaluation</span>
+        <h2>Prove it's faithful — and prove nothing leaked.</h2>
+      </div>
+      <div class="feat">
+        <div class="fcard f reveal"><span class="tag">Detection</span><h3>PII auto-classification</h3><p>Rules-based detection (email / SSN / IBAN / credit-card [Luhn] / IP / phone + column-name hints) feeds the leakage guard automatically.</p></div>
+        <div class="fcard f reveal"><span class="tag">Filters</span><h3>Similarity &amp; outlier</h3><p>Drop-only privacy filters remove any generated row too close to a real one, or clustered memorised extremes — deterministic, schema-preserving.</p></div>
+        <div class="fcard f reveal"><span class="tag">Fidelity</span><h3>Fidelity report</h3><p>Per-column KSComplement / TVComplement + global correlation similarity, all in-house; <span class="mono">--tolerance</span> gates a CI build and names the failing columns.</p></div>
+        <div class="fcard f reveal"><span class="tag">Risk</span><h3>Quality &amp; privacy report</h3><p>A composite quality score plus membership-disclosure and attribute-inference metrics — three configurable CI gates that fail the build on breach.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- REACH -->
+  <section id="reach">
+    <div class="wrap">
+      <div class="head-block reveal">
+        <span class="eyebrow">Reach &amp; foundations</span>
+        <h2>CLI, library, or UI — all the same thing.</h2>
+        <p>Three surfaces read the one declarative config, so they behave identically. Built hexagonal: every engine
+          and mutator is a plugin, boundaries enforced by import-linter.</p>
+      </div>
+      <div class="feat">
+        <div class="fcard n reveal"><span class="tag">CLI</span><h3>The command surface</h3><p><span class="mono">profile · sample · schema · generate · chaos · report · provision · ui · test-connection</span> — no stubs remain.</p></div>
+        <div class="fcard n reveal"><span class="tag">UI</span><h3>Streamlit wizard</h3><p><span class="mono">tymi ui</span> walks connect → profile → generate → chaos → reports/export in-process over the same shared Config.</p></div>
+        <div class="fcard n reveal"><span class="tag">Export</span><h3>Anywhere it needs to go</h3><p>CSV / JSON / Parquet files (byte-identical, re-importable) or a direct, idempotent load into any standard-SQL engine.</p></div>
+        <div class="fcard n reveal"><span class="tag">Engines</span><h3>Any source → any destination</h3><p>MSSQL, StarRocks, PostgreSQL, MySQL — each one bidirectional adapter; profile from one, load into another.</p></div>
+        <div class="fcard n reveal"><span class="tag">Reproducible</span><h3>Built for CI</h3><p>Same config + same seed ⇒ the same output, every run — deterministic by construction (injected RNG, no global state).</p></div>
+        <div class="fcard n reveal"><span class="tag">Architecture</span><h3>Hexagonal &amp; permissive</h3><p>Ports &amp; adapters, plugin registries, 100% permissively-licensed dependencies — core stays clean as features land as adapters.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ARCHITECTURE -->
+  <section id="architecture">
+    <div class="wrap">
+      <div class="head-block reveal">
+        <span class="eyebrow">Under the hood</span>
+        <h2>Hexagonal by construction.</h2>
+        <p>The domain never learns about a database or a CLI. Every capability and every engine is an adapter around a
+          pure core — so new features land at the edges and the center stays clean.</p>
+      </div>
+      <div class="archpanel reveal">
+        <div class="arch-band">
+          <div class="arch-label">Driving adapters — they call in</div>
+          <div class="chiprow"><span class="achip drive">CLI</span><span class="achip drive">Streamlit UI</span><span class="achip drive">CI / Airflow DAG</span></div>
+        </div>
+        <div class="arch-conn">↓</div>
+        <div class="arch-mid">
+          <div class="arch-col">
+            <span class="achip">profiling</span><span class="achip">synth · faithful</span><span class="achip">chaos · mutators</span>
+          </div>
+          <div class="hex">
+            <div><div class="ht">core · ports · domain</div><div class="hs">pure model + contracts<br>no adapter imports</div></div>
+          </div>
+          <div class="arch-col">
+            <span class="achip">privacy</span><span class="achip">eval</span><span class="achip">io · provision</span>
+          </div>
+        </div>
+        <div class="arch-conn">↑</div>
+        <div class="arch-band">
+          <div class="arch-label">Engines — bidirectional (source &amp; destination)</div>
+          <div class="chiprow"><span class="achip db">MSSQL</span><span class="achip db">PostgreSQL</span><span class="achip db">MySQL</span><span class="achip db">StarRocks</span></div>
+        </div>
+        <p class="arch-cap">Enforced by import-linter, checked in CI: <span class="mono">core → ports → domain</span> is inward-only, and <span class="mono">core / ports / domain</span> may never import an adapter (engines, synth, chaos, provision…).</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- COVERAGE -->
+  <section id="coverage">
+    <div class="wrap">
+      <div class="head-block reveal">
+        <span class="eyebrow">Tested</span>
+        <h2>Line coverage, layer by layer.</h2>
+        <p>Every story ships behind a 3-layer adversarial review gate. The logic layers sit at 93–100%.</p>
+      </div>
+      <div class="covstat reveal">
+        <div class="cs"><div class="cn">637</div><div class="cd">unit tests</div></div>
+        <div class="cs"><div class="cn">93–100%</div><div class="cd">on the logic layers</div></div>
+        <div class="cs"><div class="cn">2</div><div class="cd">import-linter contracts</div></div>
+      </div>
+      <div class="covwrap reveal">
+        <div class="covrow"><div class="cl">Domain &amp; core<small>domain · ports · core</small></div><div class="covbar"><span style="width:98%"></span></div><div class="covpct">98%</div></div>
+        <div class="covrow"><div class="cl">Provisioning<small>provision</small></div><div class="covbar"><span style="width:100%"></span></div><div class="covpct">100%</div></div>
+        <div class="covrow"><div class="cl">Privacy<small>privacy</small></div><div class="covbar"><span style="width:97%"></span></div><div class="covpct">97%</div></div>
+        <div class="covrow"><div class="cl">Profiling<small>profiling</small></div><div class="covbar"><span style="width:97%"></span></div><div class="covpct">97%</div></div>
+        <div class="covrow"><div class="cl">Chaos monkey<small>chaos</small></div><div class="covbar"><span style="width:96%"></span></div><div class="covpct">96%</div></div>
+        <div class="covrow"><div class="cl">Config &amp; Spec<small>config</small></div><div class="covbar"><span style="width:94%"></span></div><div class="covpct">94%</div></div>
+        <div class="covrow"><div class="cl">Evaluation<small>eval</small></div><div class="covbar"><span style="width:94%"></span></div><div class="covpct">94%</div></div>
+        <div class="covrow"><div class="cl">Export I/O<small>io</small></div><div class="covbar"><span style="width:94%"></span></div><div class="covpct">94%</div></div>
+        <div class="covrow"><div class="cl">Faithful synth<small>synth</small></div><div class="covbar"><span style="width:93%"></span></div><div class="covpct">93%</div></div>
+      </div>
+      <div class="covnote reveal"><b>Adapter surfaces</b> — the SQLAlchemy live-DB paths (engines) and the Streamlit view (<span class="mono">ui/app.py</span>) are driven by the <b>integration</b> (testcontainers) and <b>AppTest</b> suites, which run outside the unit line-coverage figure above. Their logic (e.g. <span class="mono">ui/services.py</span> at 97%) is covered directly.</div>
+    </div>
+  </section>
+
+  <!-- PROVISIONING -->
+  <section id="provision">
+    <div class="wrap">
+      <div class="head-block reveal">
+        <span class="eyebrow">Whole-DB provisioning · PRD 1</span>
+        <h2>A whole obfuscated database, in one command.</h2>
+        <p>The MVP works per table. This lifts it to the <em>whole</em> database — with cross-team consistency, pinned
+          login fixtures, and a fail-closed guardrail — behind <span class="mono">tymi provision --spec</span>, runnable in CI or an Airflow DAG.</p>
+      </div>
+      <div class="flow">
+        <div class="stage reveal"><div class="rail"><div class="node">1</div></div><div class="body"><h3>Load the Spec <span class="ad">AD-14</span></h3><p>A versioned artifact bundling every table's pinned Profile, seed, tolerance, shared-key decls, reserved keyspace, and fixtures — read offline, never re-profiling the source.</p></div></div>
+        <div class="stage reveal"><div class="rail"><div class="node coral">2</div></div><div class="body"><h3>Destination guardrail — fail closed <span class="ad">AD-18</span></h3><p>Requires an explicit <span class="mono">environment: nonprod</span> affirmation and no prod-deny-list match. Missing affirmation aborts; empty deny-list never means “allow all”.</p></div></div>
+        <div class="stage reveal"><div class="rail"><div class="node">3</div></div><div class="body"><h3>Whole-DB faithful generation <span class="ad">AD-13</span></h3><p>Every table in FK-topological order, each with the leakage gate embedded — zero real sensitive values.</p></div></div>
+        <div class="stage reveal"><div class="rail"><div class="node">4</div></div><div class="body"><h3>Per-table RNG substreams <span class="ad">AD-20</span></h3><p>Each table draws from a stream keyed by <span class="mono">(seed, table_name)</span> — rows and FK edges stable no matter what unrelated tables do.</p></div></div>
+        <div class="stage reveal"><div class="rail"><div class="node accent">5</div></div><div class="body"><h3>Shared-key emission <span class="ad">AD-16</span></h3><p>Columns declared <span class="mono">shared</span> become position-derived keys — independent of source and seed — so two teams get identical join keys.</p></div></div>
+        <div class="stage reveal"><div class="rail"><div class="node amber">6</div></div><div class="body"><h3>Fixtures overlay + scan-and-reject <span class="ad">AD-17</span></h3><p>Pinned login rows injected verbatim in the reserved keyspace — never regenerated, but scanned for real values &amp; PII. A hit fails closed.</p></div></div>
+        <div class="stage reveal"><div class="rail"><div class="node accent">7</div></div><div class="body"><h3>Seal into a GatedDataset <span class="ad">AD-21</span></h3><p>A type mintable only by the gate. The load boundary accepts a <span class="mono">GatedDataset</span> and refuses a raw one — un-gated data at a destination is a <em>type error</em>.</p></div></div>
+        <div class="stage reveal"><div class="rail"><div class="node">8</div></div><div class="body"><h3>Idempotent load → report <span class="ad">AD-15</span></h3><p>Each table clean-replaced (a re-run self-heals), then a report: rows, fixtures, gated columns, fidelity — and the consistency-unit fingerprint.</p></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONSISTENCY -->
+  <section id="consistency">
+    <div class="wrap consist">
+      <div class="reveal">
+        <span class="eyebrow">The wedge</span>
+        <h2 style="margin:.7rem 0 .9rem;">Two teams, one synthetic reality.</h2>
+        <p class="lede" style="font-size:var(--step-0);">Reproducible identity is a <b>consistency unit</b>: the Spec, its pinned Profiles, the seed, the pinned dependency versions, and the fixture set. Share the unit and you get byte-identical data — and a fingerprint that only matches when the reality truly matches. A drifted source or bumped dependency shows up as a <em>different</em> fingerprint instead of silently mismatched entities.</p>
+      </div>
+      <div class="fingerprint reveal">
+        <div class="teamrow">
+          <div class="chip"><div class="t">team · payments</div><div class="h">customer_id → 1042</div></div>
+          <span class="eq">=</span>
+          <div class="chip"><div class="t">team · fraud</div><div class="h">customer_id → 1042</div></div>
+        </div>
+        <div class="teamrow" style="margin-top:.7rem;">
+          <div class="chip"><div class="t">fingerprint</div><div class="h">7f3a1c…c1e9</div></div>
+          <span class="eq">=</span>
+          <div class="chip"><div class="t">fingerprint</div><div class="h">7f3a1c…c1e9</div></div>
+        </div>
+        <div class="fp-note">same unit ⇒ same entities ⇒ joins that actually join</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SPEC -->
+  <section id="spec">
+    <div class="wrap">
+      <div class="head-block reveal">
+        <span class="eyebrow">The artifact</span>
+        <h2>One editable YAML describes the whole database.</h2>
+        <p>Bootstrapped once from a source, then hand-edited. The Profiles are embedded, so regeneration is fully offline.</p>
+      </div>
+      <div class="two">
+        <div class="code reveal">
+<pre><span class="k">schema_version</span>: <span class="s">"1.0.0"</span>
+<span class="k">seed</span>: <span class="s">42</span>
+<span class="k">tolerance</span>: <span class="s">0.9</span>
+<span class="k">destination</span>:
+  <span class="k">environment</span>: <span class="coral">nonprod</span>      <span class="c"># the affirmation</span>
+  <span class="k">host</span>: dev-db.internal
+  <span class="k">database</span>: app_dev
+<span class="k">tables</span>:
+  <span class="k">customers</span>:
+    <span class="k">profile</span>: { <span class="c">... pinned, offline ...</span> }
+    <span class="k">rows</span>: <span class="s">10000</span>
+    <span class="k">shared_keys</span>: [<span class="s">customer_id</span>]   <span class="c"># cross-team</span>
+    <span class="k">reserved_key_block</span>: <span class="s">1000</span>    <span class="c"># fixtures live below</span>
+    <span class="k">fixtures</span>:
+      <span class="amber">- { customer_id: 1, email: "qa.admin@test.dev" }</span></pre>
+        </div>
+        <div class="reveal" style="align-self:center;">
+          <h3 style="margin-bottom:.7rem;">What each field buys you</h3>
+          <p style="color:var(--ink-dim); font-size:.92rem;">
+            <b style="color:var(--ink)">profile</b> — the statistical mold, embedded so no source is touched again.<br><br>
+            <b style="color:var(--ink)">shared_keys</b> — the columns that must line up across teams.<br><br>
+            <b style="color:var(--ink)">reserved_key_block</b> — the low key range fixtures own; generated keys start above it, disjoint by construction.<br><br>
+            <b style="color:var(--ink)">fixtures</b> — the exact accounts people need to log in, pinned verbatim and still scanned.<br><br>
+            <b style="color:var(--ink)">destination</b> — the single owner of the non-prod guardrail; excluded from the fingerprint.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCOPE -->
+  <section id="scope">
+    <div class="wrap">
+      <div class="head-block reveal">
+        <span class="eyebrow">Status</span>
+        <h2>Shipped, mapped, and honest about the rest.</h2>
+      </div>
+      <div class="phase">
+        <div class="pcard done reveal"><span class="lab">MVP · shipped</span><h3>Faithful · Chaos · Privacy · UI</h3><p>All 5 epics: profiling, faithful generation, the full chaos monkey, privacy &amp; eval, and the Streamlit UI.</p><div class="status">◈ done</div></div>
+        <div class="pcard done reveal"><span class="lab">PRD 1 · Phase 1 · shipped</span><h3>Whole-DB provisioning</h3><p>Spec model, cross-team consistency, fixtures, guardrail, and the one <span class="mono">provision</span> command.</p><div class="status">◈ done · 9/9</div></div>
+        <div class="pcard reveal"><span class="lab">Phase 2 · deferred</span><h3>Out-of-core scale</h3><p>Arbitrarily large databases — the per-table substreams are the seam the chunked design extends.</p><div class="status">planned</div></div>
+        <div class="pcard reveal"><span class="lab">Phase 3 · deferred</span><h3>Depth &amp; controls</h3><p>Cross-table correlation, referentially-consistent subsetting, and incremental / delta refresh.</p><div class="status">planned</div></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>TYMI — <span class="mono">Fake It Till You Make It</span> · faithful generator · chaos monkey · whole-DB provisioning</span>
+    <span class="mono">docs/ · MVP + PRD 1 · 637 tests</span>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var els = document.querySelectorAll('.reveal');
+    if (reduce || !('IntersectionObserver' in window)) { els.forEach(function (e){ e.classList.add('in'); }); return; }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); } });
+    }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+    els.forEach(function (e) { io.observe(e); });
+  })();
+</script>
