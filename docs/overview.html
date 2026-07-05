@@ -263,6 +263,7 @@
       <a href="#architecture">Arch</a>
       <a href="#coverage">Tested</a>
       <a href="#provision">Provisioning</a>
+      <a href="#scale">Scale</a>
     </nav>
   </div>
 </header>
@@ -280,7 +281,7 @@
         <div class="badges">
           <span class="badge">MVP · <b>5</b> epics</span>
           <span class="badge">PRD 1 · whole-DB provisioning</span>
-          <span class="badge"><b>637</b> tests green</span>
+          <span class="badge"><b>715</b> tests green</span>
           <span class="badge"><b>4</b> engines · any→any</span>
         </div>
       </div>
@@ -483,22 +484,22 @@
         <p>Every story ships behind a 3-layer adversarial review gate. The logic layers sit at 93–100%.</p>
       </div>
       <div class="covstat reveal">
-        <div class="cs"><div class="cn">637</div><div class="cd">unit tests</div></div>
-        <div class="cs"><div class="cn">93–100%</div><div class="cd">on the logic layers</div></div>
+        <div class="cs"><div class="cn">715</div><div class="cd">unit tests</div></div>
+        <div class="cs"><div class="cn">94–100%</div><div class="cd">on the logic layers</div></div>
         <div class="cs"><div class="cn">2</div><div class="cd">import-linter contracts</div></div>
       </div>
       <div class="covwrap reveal">
         <div class="covrow"><div class="cl">Domain &amp; core<small>domain · ports · core</small></div><div class="covbar"><span style="width:98%"></span></div><div class="covpct">98%</div></div>
-        <div class="covrow"><div class="cl">Provisioning<small>provision</small></div><div class="covbar"><span style="width:100%"></span></div><div class="covpct">100%</div></div>
+        <div class="covrow"><div class="cl">Provisioning<small>provision</small></div><div class="covbar"><span style="width:99%"></span></div><div class="covpct">99%</div></div>
         <div class="covrow"><div class="cl">Privacy<small>privacy</small></div><div class="covbar"><span style="width:97%"></span></div><div class="covpct">97%</div></div>
         <div class="covrow"><div class="cl">Profiling<small>profiling</small></div><div class="covbar"><span style="width:97%"></span></div><div class="covpct">97%</div></div>
         <div class="covrow"><div class="cl">Chaos monkey<small>chaos</small></div><div class="covbar"><span style="width:96%"></span></div><div class="covpct">96%</div></div>
         <div class="covrow"><div class="cl">Config &amp; Spec<small>config</small></div><div class="covbar"><span style="width:94%"></span></div><div class="covpct">94%</div></div>
         <div class="covrow"><div class="cl">Evaluation<small>eval</small></div><div class="covbar"><span style="width:94%"></span></div><div class="covpct">94%</div></div>
         <div class="covrow"><div class="cl">Export I/O<small>io</small></div><div class="covbar"><span style="width:94%"></span></div><div class="covpct">94%</div></div>
-        <div class="covrow"><div class="cl">Faithful synth<small>synth</small></div><div class="covbar"><span style="width:93%"></span></div><div class="covpct">93%</div></div>
+        <div class="covrow"><div class="cl">Synth + scale &amp; controls<small>synth</small></div><div class="covbar"><span style="width:94%"></span></div><div class="covpct">94%</div></div>
       </div>
-      <div class="covnote reveal"><b>Adapter surfaces</b> — the SQLAlchemy live-DB paths (engines) and the Streamlit view (<span class="mono">ui/app.py</span>) are driven by the <b>integration</b> (testcontainers) and <b>AppTest</b> suites, which run outside the unit line-coverage figure above. Their logic (e.g. <span class="mono">ui/services.py</span> at 97%) is covered directly.</div>
+      <div class="covnote reveal">The Phase-2/3 modules land in the same layers at <b>97–100%</b> — <span class="mono">streaming</span> 97%, <span class="mono">subset</span> 99%, <span class="mono">delta</span> 100%, <span class="mono">cross_correlation</span> 97%. <b>Adapter surfaces</b> — the SQLAlchemy live-DB paths (engines) and the Streamlit view (<span class="mono">ui/app.py</span>) are driven by the <b>integration</b> (testcontainers) and <b>AppTest</b> suites, outside this unit figure.</div>
     </div>
   </section>
 
@@ -588,6 +589,27 @@
     </div>
   </section>
 
+  <!-- SCALE & CONTROLS -->
+  <section id="scale">
+    <div class="wrap">
+      <div class="head-block reveal">
+        <span class="eyebrow">Phase 2 &amp; 3 · scale &amp; controls</span>
+        <h2>From a few MB to hundreds of TB — and finer control.</h2>
+        <p>The Phase-1 seam pays off: because keys are <em>position-derived</em>, a child resolves its
+          foreign keys from a parent's <em>position</em> without ever loading the parent — so the same
+          engine streams a database of any size, and knows what's unchanged on a re-run.</p>
+      </div>
+      <div class="feat">
+        <div class="fcard f reveal"><span class="tag">Out-of-core · AD-22–24</span><h3>Streaming, bounded memory</h3><p><span class="mono">tymi provision --stream</span> generates and writes the whole DB chunk-by-chunk — peak memory is one row-chunk regardless of total size. First chunk replaces, the rest append (idempotent).</p></div>
+        <div class="fcard f reveal"><span class="tag">Position-addressable</span><h3>FKs without the parent</h3><p>A child block draws parent <em>positions</em> and maps them to keys by formula (surrogate <span class="mono">pos</span>, shared <span class="mono">reserved+pos</span>) — referential integrity holds with the parent never in RAM.</p></div>
+        <div class="fcard f reveal"><span class="tag">Correlation · AD-25</span><h3>Cross-table dependency</h3><p>A declared <span class="mono">amount ↔ customer.tier</span> is induced by a rank reorder that hits Spearman ≈ ρ against the referenced parent value — while preserving the child's marginal.</p></div>
+        <div class="fcard f reveal"><span class="tag">Subset · AD-26</span><h3>A smaller, valid DB</h3><p>Keep a fraction of a root table; descendants connected to it and the dimensions they need come along, RI intact. Keys aren't renumbered, so a subset still <em>joins</em> to a full dataset.</p></div>
+        <div class="fcard f reveal"><span class="tag">Delta · AD-27</span><h3>Refresh only what changed</h3><p>Diff two Specs and regenerate only the dirty tables — a key-affecting parent dirties its children one hop, a correlation parent dirties its correlated child. A clean table is byte-identical to before.</p></div>
+        <div class="fcard f reveal"><span class="tag">Honest identity</span><h3>The fingerprint tells the truth</h3><p>In-memory and streaming emit different byte layouts, so the consistency-unit fingerprint folds in the <em>mode</em> — it never claims two different realities are the same.</p></div>
+      </div>
+    </div>
+  </section>
+
   <!-- SCOPE -->
   <section id="scope">
     <div class="wrap">
@@ -598,8 +620,8 @@
       <div class="phase">
         <div class="pcard done reveal"><span class="lab">MVP · shipped</span><h3>Faithful · Chaos · Privacy · UI</h3><p>All 5 epics: profiling, faithful generation, the full chaos monkey, privacy &amp; eval, and the Streamlit UI.</p><div class="status">◈ done</div></div>
         <div class="pcard done reveal"><span class="lab">PRD 1 · Phase 1 · shipped</span><h3>Whole-DB provisioning</h3><p>Spec model, cross-team consistency, fixtures, guardrail, and the one <span class="mono">provision</span> command.</p><div class="status">◈ done · 9/9</div></div>
-        <div class="pcard reveal"><span class="lab">Phase 2 · deferred</span><h3>Out-of-core scale</h3><p>Arbitrarily large databases — the per-table substreams are the seam the chunked design extends.</p><div class="status">planned</div></div>
-        <div class="pcard reveal"><span class="lab">Phase 3 · deferred</span><h3>Depth &amp; controls</h3><p>Cross-table correlation, referentially-consistent subsetting, and incremental / delta refresh.</p><div class="status">planned</div></div>
+        <div class="pcard done reveal"><span class="lab">PRD 1 · Phase 2 · shipped</span><h3>Out-of-core scale</h3><p>Chunked streaming — a DB of any size provisions with peak memory bounded to one chunk (<span class="mono">--stream</span>).</p><div class="status">◈ done · 4/4</div></div>
+        <div class="pcard done reveal"><span class="lab">PRD 1 · Phase 3 · shipped</span><h3>Depth &amp; controls</h3><p>Cross-table correlation, referentially-consistent subsetting, and incremental / delta refresh.</p><div class="status">◈ done · 3/3</div></div>
       </div>
     </div>
   </section>
@@ -608,7 +630,7 @@
 <footer>
   <div class="wrap">
     <span>TYMI — <span class="mono">Fake It Till You Make It</span> · faithful generator · chaos monkey · whole-DB provisioning</span>
-    <span class="mono">docs/ · MVP + PRD 1 · 637 tests</span>
+    <span class="mono">docs/ · MVP + PRD 1 (3 phases) · 715 tests</span>
   </div>
 </footer>
 
