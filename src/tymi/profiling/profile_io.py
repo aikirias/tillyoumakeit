@@ -46,10 +46,34 @@ from tymi.domain.artifacts import (
 PROFILE_SCHEMA_MAJOR = 1
 
 
+def profile_to_dict(profile: Profile) -> dict[str, Any]:
+    """A Profile as a plain JSON-safe ``dict`` (tuples->lists, StrEnum->str).
+
+    The canonical embeddable form — e.g. a whole-DB Spec bundles the pinned Profile via this
+    (round-trips with :func:`profile_from_dict`).
+    """
+    return json.loads(profile_to_json(profile))
+
+
+def profile_from_dict(data: dict[str, Any]) -> Profile:
+    """Reconstruct a Profile from its plain dict, gating on ``schema_version`` major."""
+    if not isinstance(data, dict):
+        raise ProfileError("Profile must be a mapping.")
+    declared = str(data.get("schema_version", "1.0.0"))
+    if _major(declared) != PROFILE_SCHEMA_MAJOR:
+        raise ProfileVersionError(
+            f"Unsupported profile schema_version {declared!r}; "
+            f"this build supports major {PROFILE_SCHEMA_MAJOR}."
+        )
+    try:
+        return _profile_from_dict(data, declared)
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise ProfileError(f"Malformed profile artifact: {exc}") from exc
+
+
 def save_profile(profile: Profile, path: str | Path) -> None:
     """Write ``profile`` to ``path`` as YAML (UTF-8), carrying its schema_version."""
-    plain = json.loads(profile_to_json(profile))  # tuples->lists, StrEnum->str
-    text = yaml.safe_dump(plain, sort_keys=False, allow_unicode=True)
+    text = yaml.safe_dump(profile_to_dict(profile), sort_keys=False, allow_unicode=True)
     Path(path).write_text(text, encoding="utf-8")
 
 
@@ -69,20 +93,7 @@ def load_profile(path: str | Path) -> Profile:
         raise ProfileError(f"Could not parse profile YAML: {exc}") from exc
     if not isinstance(data, dict):
         raise ProfileError("Profile root must be a mapping.")
-
-    declared = str(data.get("schema_version", "1.0.0"))
-    if _major(declared) != PROFILE_SCHEMA_MAJOR:
-        raise ProfileVersionError(
-            f"Unsupported profile schema_version {declared!r}; "
-            f"this build supports major {PROFILE_SCHEMA_MAJOR}."
-        )
-    try:
-        return _profile_from_dict(data, declared)
-    except (KeyError, TypeError, ValueError, AttributeError) as exc:
-        # AttributeError covers hand-edited files where a section is the wrong
-        # shape (e.g. `schema:` a list, `columns:` a scalar → `.get`/`.items`
-        # on the wrong type). Every malformed artifact must surface as ProfileError.
-        raise ProfileError(f"Malformed profile artifact: {exc}") from exc
+    return profile_from_dict(data)
 
 
 def _major(version: str) -> int:
