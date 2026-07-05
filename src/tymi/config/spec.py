@@ -31,6 +31,18 @@ DEFAULT_CHUNK_ROWS = 50_000
 _FORBID = ConfigDict(extra="forbid")
 
 
+class CrossCorrelation(BaseModel):
+    """A declared single-hop cross-table correlation (AD-25): ``child.column ↔ parent.column`` at
+    Spearman ``rho``. Applied post-generation by rank reorder, preserving the child marginal."""
+
+    model_config = _FORBID
+
+    column: str
+    parent_table: str
+    parent_column: str
+    rho: float = Field(ge=-1.0, le=1.0)
+
+
 class TableSpec(BaseModel):
     """One table's entry in a :class:`Spec`: its pinned Profile + editable marks."""
 
@@ -52,6 +64,8 @@ class TableSpec(BaseModel):
     reserved_key_block: int = Field(default=0, ge=0)
     #: Pinned verbatim fixture rows (AD-17) — filled in Story 3.1.
     fixtures: list[dict[str, Any]] = Field(default_factory=list)
+    #: Declared single-hop cross-table correlations (AD-25); induced post-generation.
+    cross_correlations: list[CrossCorrelation] = Field(default_factory=list)
 
 
 class DestinationSpec(BaseModel):
