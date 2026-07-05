@@ -24,6 +24,10 @@ from tymi.profiling.profiler import profile_dataset
 #: The Spec schema major version this build understands.
 SPEC_SCHEMA_MAJOR = 1
 
+#: Default out-of-core generation block size (rows). Peak memory is ~one block; pinned in the Spec
+#: and part of the consistency unit, so two teams that share a Spec stream byte-identical output.
+DEFAULT_CHUNK_ROWS = 50_000
+
 _FORBID = ConfigDict(extra="forbid")
 
 
@@ -72,6 +76,9 @@ class Spec(BaseModel):
     schema_version: str = "1.0.0"
     seed: int = 0
     tolerance: float = Field(default=0.9, ge=0.0, le=1.0)
+    #: Out-of-core generation block size (AD-22). Peak memory is ~one block; part of the
+    #: consistency unit, so a changed value changes the streamed bytes (and the fingerprint).
+    chunk_rows: int = Field(default=DEFAULT_CHUNK_ROWS, gt=0)
     tables: dict[str, TableSpec] = Field(default_factory=dict)
     #: Provisioning destination (AD-18). Optional: a Spec without one can only be *generated*, not
     #: provisioned. Excluded from the consistency fingerprint (operational, not data identity).

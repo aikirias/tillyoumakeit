@@ -26,14 +26,23 @@ def _name_entropy(table_name: str) -> int:
     return int.from_bytes(digest, "big")
 
 
-def table_substream(seed: int, table_name: str) -> np.random.Generator:
-    """A fresh ``Generator`` seeded from ``(seed, table_name)`` (AD-20).
+def table_substream(
+    seed: int, table_name: str, chunk: int | None = None
+) -> np.random.Generator:
+    """A fresh ``Generator`` seeded from ``(seed, table_name[, chunk])`` (AD-20/AD-22).
 
-    Deterministic and independent per table: the same ``(seed, table_name)`` always yields the
-    same stream, and distinct table names yield independent streams (with overwhelming
-    probability — the name entropy is 64-bit). ``seed`` is masked to 64 bits before being combined
-    with the table-name entropy, so a negative seed is accepted; note this also collapses seeds
-    that differ only above bit 64 (seeds are small ints in practice).
+    Deterministic and independent per table: the same key always yields the same stream, and
+    distinct table names yield independent streams (with overwhelming probability — the name
+    entropy is 64-bit). ``seed`` is masked to 64 bits before being combined with the table-name
+    entropy, so a negative seed is accepted; note this also collapses seeds that differ only above
+    bit 64 (seeds are small ints in practice).
+
+    ``chunk`` is the out-of-core generation block index (AD-22): passing it derives an independent
+    per-block stream so a table can be generated one bounded-memory block at a time. ``chunk=None``
+    (the default) yields the Phase-1 whole-table stream, unchanged — so in-memory generation and its
+    determinism are untouched.
     """
     entropy = [seed & _MASK64, _name_entropy(table_name)]
+    if chunk is not None:
+        entropy.append(int(chunk) & _MASK64)
     return np.random.default_rng(np.random.SeedSequence(entropy))
