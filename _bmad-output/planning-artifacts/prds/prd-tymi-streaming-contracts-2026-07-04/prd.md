@@ -1,9 +1,9 @@
 ---
 title: TYMI — Contracts & Streaming (PRD 3)
-status: draft
+status: final
 created: 2026-07-04
-updated: 2026-07-04
-note: Fast-path first cut, hardened by the reviewer gate (rubric + adversarial + license/feasibility, web-verified 2026-07-04). Phasing inverted to wedge-first.
+updated: 2026-07-05
+note: Fast-path first cut, hardened by the reviewer gate (rubric + adversarial + license/feasibility, web-verified 2026-07-04), then finalized — the four open questions were resolved with the product owner (Pulsar is the Phase-2 first sink, using its Apache-2.0 native schema registry; serialization ships all three of JSON/Avro/Protobuf; success is correctness-first, not a throughput SLA; the stream is emit-only). Phasing inverted to wedge-first.
 ---
 
 # TYMI — Contracts & Streaming (PRD 3)
@@ -53,10 +53,13 @@ serialization/registry plumbing are commodity, so they come *after* the wedge, n
 reference OpenAPI/JSON-Schema contract, TYMI emits payloads to a file of which a configured
 fraction are **contract-invalid**; a reference validator (`jsonschema`/`openapi-core`, the
 oracle) **rejects exactly the invalid ones and accepts the valid ones**, matching the Fault
-Manifest. No queue involved.
-**G2 — Faithful delivery to a real queue (Phase 2).** TYMI emits to a Kafka topic with the
+Manifest. The realized invalid fraction lands within the **±2 pp** chaos acceptance margin
+inherited from the MVP. No queue involved.
+**G2 — Faithful delivery to a real queue (Phase 2).** TYMI emits to a Pulsar topic with the
 declared serialization; a reference consumer reads records back **faithful to the canonical
-Schema mapping** (AD-10) with no silent field loss (CM2).
+Schema mapping** (AD-10) with no silent field loss (CM2). Success is **correctness-first** —
+zero field loss on round-trip — **not** a throughput SLA; throughput is a soft sanity floor
+(the tool feeds dev/stress environments, it is not a production broker). **Decision (was OQ-3.)**
 **G3 — Reproducible & auditable.** Same config+seed → identical **emit-boundary** sequence
 (the ordered `(partition, key, value-bytes)` tuples) + identical Fault Manifest — **not**
 byte-identical topic state (see NFR-C).
@@ -73,10 +76,14 @@ Inverted from the first cut: **wedge before plumbing.**
   valid payloads; generate **surgically-invalid** payloads via contract-aware mutators; emit
   to file/stdout; audit against the validator oracle. `SC-1, SC-2, SC-3`. No queue, no
   registry, no license risk.
-- **Phase 2 — `StreamSink` (Kafka) + serialization + registry.** Deliver the payloads to a
-  Kafka topic; serialize; integrate a schema registry. `SC-4, SC-5, SC-6`.
-- **Phase 3 — Breadth (more queues) + faithful stream provisioning.** Pulsar + RabbitMQ sinks;
-  let PRD 1's `provision` target a topic. `SC-7, SC-8`.
+- **Phase 2 — `StreamSink` (Pulsar) + serialization + registry.** Deliver the payloads to a
+  **Pulsar** topic; serialize (all three formats); integrate Pulsar's **native** schema
+  registry. `SC-4, SC-5, SC-6`. **Decision (was OQ-1/OQ-2):** Pulsar is the first sink — its
+  schema registry ships **inside the Apache-2.0 broker**, so the whole Phase-2 registry surface
+  is AD-9-clean with **no Confluent Community License** dependency. Serialization delivers
+  **all three of JSON/Avro/Protobuf** (no first-choice), each canonicalized.
+- **Phase 3 — Breadth (more queues) + faithful stream provisioning.** **Kafka + RabbitMQ**
+  sinks; let PRD 1's `provision` target a topic. `SC-7, SC-8`.
 
 ## Users & Journeys
 
@@ -84,7 +91,7 @@ Inverted from the first cut: **wedge before plumbing.**
 **streaming engineer** (feeds a dev streaming env / stress-tests a consumer). **UJ-1:** point
 TYMI at a contract, get valid + invalid payloads to a file, run them through the endpoint's
 validator and see which invalid ones it wrongly accepts — then (Phase 2) flip the same
-payloads onto a Kafka topic to stress the live consumer.
+payloads onto a Pulsar topic to stress the live consumer.
 
 ## Functional Requirements
 
@@ -103,19 +110,24 @@ payloads onto a Kafka topic to stress the live consumer.
 
 ### B. Queue delivery (Phase 2)
 
-- **SC-4 — `StreamSink` port + Kafka sink.** A new destination-adapter family (AD-2/AD-3,
-  `tymi.sinks` entry points); emit to a Kafka topic. Clients are AD-9-permissive
-  (`confluent-kafka`/`kafka-python`, Apache-2.0; verified).
-- **SC-5 — Serialization.** Serialize from the canonical Schema to **Avro / JSON / Protobuf**
-  with **no silent field loss** (CM2); canonicalized (sorted JSON keys / Avro canonical form)
-  for determinism.
-- **SC-6 — Schema-registry integration.** Register/resolve via the wire protocol shipped in
-  the Apache-2.0 `confluent-kafka` serializers, against a **user-supplied** registry endpoint.
+- **SC-4 — `StreamSink` port + Pulsar sink.** A new destination-adapter family (AD-2/AD-3,
+  `tymi.sinks` entry points); emit to a **Pulsar** topic. Client is AD-9-permissive
+  (`pulsar-client`, Apache-2.0; verified). The port is **write-only** (a sink, not a
+  bidirectional source — OQ-4).
+- **SC-5 — Serialization (all three formats).** Serialize from the canonical Schema to
+  **JSON, Avro, and Protobuf** (all three — no first-choice, OQ-2) with **no silent field
+  loss** (CM2); canonicalized (sorted JSON keys / Avro canonical form / deterministic Protobuf
+  field order) for emit-boundary determinism.
+- **SC-6 — Schema-registry integration.** Register/resolve against **Pulsar's built-in schema
+  registry** (part of the Apache-2.0 broker — the AD-9-clean reference, no Confluent Community
+  License). A Confluent/Apicurio registry remains a **user-supplied** endpoint only (Phase 3,
+  alongside the Kafka sink).
 
 ### C. Breadth (Phase 3)
 
-- **SC-7 — Pulsar & RabbitMQ sinks.** Two more `StreamSink` adapters (`pulsar-client`
-  Apache-2.0, `pika` BSD-3; verified).
+- **SC-7 — Kafka & RabbitMQ sinks.** Two more `StreamSink` adapters (`confluent-kafka`
+  Apache-2.0, `pika` BSD-3; verified). The Kafka sink brings the user-supplied Confluent/Apicurio
+  registry path (SC-6); the RabbitMQ **server** is MPL-2.0 — talked-to, never bundled (AD-9).
 - **SC-8 — Faithful stream provisioning.** PRD 1's `provision` can target a topic (a faithful
   dev *streaming* environment), now that a `StreamSink` exists.
 
@@ -129,8 +141,10 @@ payloads onto a Kafka topic to stress the live consumer.
   BSD-3, jsonschema MIT, openapi-core BSD-3). **The rule:** TYMI may *talk to* a broker or
   registry but must **not bundle/redistribute/auto-provision** a non-permissive *server* (the
   **Confluent Schema Registry server is Confluent Community License**, not OSI-permissive;
-  RabbitMQ server is MPL-2.0). The reference registry is **Apicurio (Apache-2.0)**; the
-  Confluent registry is a user-supplied endpoint only.
+  RabbitMQ server is MPL-2.0). **The Phase-2 reference registry is Pulsar's built-in registry
+  (Apache-2.0, in-broker)** — chosen first precisely because it keeps the whole Phase-2 surface
+  license-clean; **Apicurio (Apache-2.0)** or the Confluent registry are user-supplied endpoints
+  only, arriving with the Phase-3 Kafka sink.
 - **NFR-C Determinism at the emit boundary (not the broker).** Byte-identical topic state is
   **not honorable** (broker CreateTime, offsets, compression framing, retry reordering). The
   reproducibility SLA is TYMI's **emit boundary**: the deterministic ordered `(partition, key,
@@ -147,14 +161,24 @@ payloads onto a Kafka topic to stress the live consumer.
   generator/temporal-modeling products, **not streaming features** (time-series was an
   MVP-deferred hard item). **Evicted to a future PRD (PRD 4 candidate)**, not smuggled here.
 - **Faithful DB generation (PRD 1)** and **batch content-chaos (PRD 2)** — reused, not re-spec'd.
-- **Consuming/profiling a live stream** — profiling stays batch/sample-based (OQ-4).
+- **Consuming/profiling a live stream** — profiling stays batch/sample-based; the `StreamSink`
+  is **write-only** (was OQ-4). A live-stream *source* (profile-from-stream) is a future PRD.
 
-## Open Questions
+## Resolved Decisions (were Open Questions)
 
-- **OQ-1 (forcing function / first queue).** Which queue does a real team need first (Kafka
-  assumed for Phase 2)? A concrete pull sets the Phase-2 target and could reorder vs PRD 2.
-- **OQ-2 (serialization first).** Avro, JSON, or Protobuf first — driven by the target
-  registry/environment.
-- **OQ-3 (G1/G2 targets).** The invalid-payload fraction + margin for G1, and the Phase-2
-  throughput target for G2.
-- **OQ-4 (stream as source).** Do we ever *profile from* a live stream, or only *emit to* one?
+Closed with the product owner on 2026-07-05; PRD is now `final`.
+
+- **OQ-1 → Pulsar is the Phase-2 first sink** (Kafka + RabbitMQ move to Phase 3, SC-7). Rationale
+  beyond preference: Pulsar's schema registry lives **inside the Apache-2.0 broker**, so Phase 2
+  carries **no Confluent Community License** dependency at all — the license-cleanest way to prove
+  the queue wedge. (See Phasing, SC-4, SC-6.)
+- **OQ-2 → serialization ships all three formats** (JSON, Avro, Protobuf) in Phase 2, no
+  first-choice, each canonicalized for emit-boundary determinism. (See SC-5.)
+- **OQ-3 → success is correctness-first, not a throughput SLA.** G1: the oracle rejects exactly
+  the invalid set, realized fraction within **±2 pp** (inherited chaos margin). G2: faithful
+  round-trip with zero field loss; throughput is a soft sanity floor only. (See G1/G2.)
+- **OQ-4 → the stream is emit-only.** `StreamSink` is a write-only destination adapter; profiling
+  stays batch/sample. Reading/profiling from a live stream is out of scope (future PRD). (See
+  SC-4, Out of Scope.)
+
+No open questions remain. Downstream (architecture, epics) can proceed.
