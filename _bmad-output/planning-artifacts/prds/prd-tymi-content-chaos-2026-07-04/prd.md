@@ -1,9 +1,9 @@
 ---
 title: TYMI — Deeper Chaos Monkey / Content Chaos (PRD 2)
-status: draft
+status: final
 created: 2026-07-04
-updated: 2026-07-04
-note: Fast-path first cut, hardened by the reviewer gate (rubric + adversarial). [ASSUMPTION]/OQ mark calls pending the forcing function.
+updated: 2026-07-05
+note: Fast-path first cut, hardened by the reviewer gate (rubric + adversarial), then finalized — the three open questions were resolved with the product owner (synthetic reference fixture as the forcing function; MAR/MNAR conditioning reuses the shipped condition DSL; detection reported via a declared JSON/YAML results file).
 ---
 
 # TYMI — Deeper Chaos Monkey / Content Chaos (PRD 2)
@@ -101,18 +101,30 @@ drift faults their pipeline or alerts failed to catch — reproducibly.
   so a **row deletion/insertion is representable and auditable** (today's manifest is
   positional-row-keyed and the audit marks row-count changes "unauditable" — this is a **core
   change to `chaos_audit.py` + the manifest schema + mixed-mode policy**, not just a plugin).
-- **CC-9 — Reference fixture.** A small multi-table dataset + a toy pipeline + a data-QA alert
-  suite, shipped as a test fixture, so G1 is measurable in CI.
+- **CC-9 — Reference fixture (the forcing function).** A small multi-table dataset (a
+  `customers`/`orders`-shaped whole-DB from PRD 1/MVP) + a **toy pipeline** (a few deterministic
+  transforms/joins) + a **data-QA alert suite** (a handful of expectations: non-null keys, FK
+  integrity, row-count band, monotonic sequence), shipped as a **self-contained test fixture**.
+  **Decision (was OQ-1):** the **synthetic reference fixture is the forcing function** — the demo
+  is self-contained and self-hardening, so G1 (the detection audit shows a real miss) is measurable
+  in CI from day one with **no dependency on a real team**; a real pipeline can be mapped onto the
+  same results contract later. The first family anchored on it is **referential missing-data**
+  (dropped records / orphaned children, CC-1) — the sharpest multi-table white space.
 - **CC-10 — Batch/DB delivery.** Emit chaotic output through the existing exporters + PRD 1
   destinations. No streams (PRD 3).
 
 ### C. The detection audit (Phase 1 — the differentiator)
 
 - **CC-11 — Detection audit ("did it catch it?").** Given the Fault Manifest and a consumer's
-  result (pipeline output and/or fired data-QA alerts), report which injected faults were
-  **detected vs missed** — a bidirectional detection contract extending the Story 3.6 manifest
-  audit. The consumer reports detections in a **declared results format** (defined here, see
-  OQ-3), so the audit is buildable, not hand-wavy.
+  result, report which injected faults were **detected vs missed** — a bidirectional detection
+  contract extending the Story 3.6 manifest audit.
+  **Decision (was OQ-3):** the consumer reports detections in a **declared JSON/YAML results file**
+  — a tool-agnostic list of what it flagged, each entry keyed to the manifest's fault vocabulary
+  (fault id / table / row key / column). The audit **diffs** that file against the Fault Manifest
+  and returns three sets: **detected** (in both), **missed** (in the manifest, not the results),
+  and **false alarms** (in the results, not the manifest). Any data-QA tool (Great Expectations,
+  dbt tests, custom checks) maps its native output to this contract; TYMI ships the schema + a
+  helper, not a tool integration (those are follow-ons).
 
 ### D. Conditioned nullification & partial records (Phase 2)
 
@@ -120,6 +132,12 @@ drift faults their pipeline or alerts failed to catch — reproducibly.
   conditioning: MAR (missingness rate depends on another column), MNAR (depends on the cell's
   own value). Extends the shipped uniform `illegal_null` (MCAR) — only the *conditioning* is
   new. Verified by G2's stratum test.
+  **Decision (was OQ-2):** the conditioning rule **reuses the shipped condition DSL**
+  (`synth/conditions.py` — `col=value`, `col in [lo,hi]`, `col in {a,b,c}`), so it is declarative,
+  YAML-serializable, and reproducible (AD-4). A rule pairs a condition with a per-stratum
+  `null_rate`: **MAR** conditions on **another** column (`when tier in {free} then null_rate=0.4`),
+  **MNAR** on the affected column's **own** value (`when amount in [1000, inf] then null_rate=0.6`).
+  Cells outside the condition keep the run's base rate (0 if unset).
 - **CC-4 — Partial records.** Null a declared subset of columns per affected row (incomplete
   rows), distinct from CC-2's cell pattern.
 
@@ -145,11 +163,18 @@ injected rng (AD-4/AD-11), chaos run_mode (AD-12). No new runtime dependency (nu
   reused, not re-specified (see the honesty table).
 - **Learned/generative missingness models** — rule-based conditioning only.
 
-## Open Questions
+## Resolved Decisions (were Open Questions)
 
-- **OQ-1 (forcing function).** The concrete pull — a specific pipeline/team whose alerts must
-  be hardened — sets which family and fixture ship first.
-- **OQ-2 (conditioning rules).** The exact MAR/MNAR conditioning language in the policy (a
-  threshold/expression on another column vs the cell's own value).
-- **OQ-3 (detection-audit results format).** How a consumer reports what it detected (a results
-  file? an alert log? exit codes?) so CC-11 can compare against the manifest.
+Closed with the product owner on 2026-07-05; PRD is now `final`.
+
+- **OQ-1 → forcing function = the synthetic reference fixture (CC-9).** Build a self-contained
+  demo (multi-table dataset + toy pipeline + data-QA alert suite) as the anchor; no dependency on a
+  real team to start. Phase 1's first family is **referential missing-data** (CC-1). A real pipeline
+  maps onto the same results contract later.
+- **OQ-2 → MAR/MNAR conditioning reuses the shipped condition DSL** (`synth/conditions.py`); a rule
+  pairs a condition with a per-stratum `null_rate` (MAR conditions on another column, MNAR on the
+  cell's own value). Declarative, YAML-serializable, reproducible. (See CC-2.)
+- **OQ-3 → detection reported via a declared JSON/YAML results file**, diffed against the Fault
+  Manifest into detected / missed / false-alarm sets; tool-agnostic. (See CC-11.)
+
+No open questions remain. Downstream (architecture, epics) can proceed.
