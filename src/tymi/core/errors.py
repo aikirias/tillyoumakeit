@@ -55,6 +55,14 @@ class FixtureError(TymiError):
     """
 
 
+class GuardrailError(TymiError):
+    """The provisioning destination is not a safe non-production target (AD-18).
+
+    Raised **fail-closed** when the Spec's destination lacks an ``environment: nonprod``
+    affirmation or matches the configured production deny-list — before any write.
+    """
+
+
 class ExportError(TymiError):
     """A Dataset could not be exported (unknown format, unwritable target, …)."""
 

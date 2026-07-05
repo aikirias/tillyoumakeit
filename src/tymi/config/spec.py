@@ -50,6 +50,20 @@ class TableSpec(BaseModel):
     fixtures: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class DestinationSpec(BaseModel):
+    """Where a Spec is provisioned — the single owner of the non-prod guardrail (AD-18).
+
+    ``environment`` must affirm ``"nonprod"``; ``host``/``database`` are non-secret identifiers the
+    prod deny-list is matched against. Credentials live on the runner, never in the Spec (NFR-6).
+    """
+
+    model_config = _FORBID
+
+    environment: str
+    host: str | None = None
+    database: str | None = None
+
+
 class Spec(BaseModel):
     """A versioned whole-DB generation spec (AD-14)."""
 
@@ -59,6 +73,9 @@ class Spec(BaseModel):
     seed: int = 0
     tolerance: float = Field(default=0.9, ge=0.0, le=1.0)
     tables: dict[str, TableSpec] = Field(default_factory=dict)
+    #: Provisioning destination (AD-18). Optional: a Spec without one can only be *generated*, not
+    #: provisioned. Excluded from the consistency fingerprint (operational, not data identity).
+    destination: DestinationSpec | None = None
 
 
 def bootstrap_spec(

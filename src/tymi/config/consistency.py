@@ -44,8 +44,12 @@ def consistency_fingerprint(spec: Spec, *, deps: dict[str, str] | None = None) -
     Pass ``deps`` explicitly for a fully reproducible fingerprint independent of the environment;
     by default the live installed versions are read.
     """
+    spec_dump = spec.model_dump(mode="json")
+    # The destination is *where* you provision, not what the data *is* — exclude it from the
+    # consistency unit so two teams provisioning the same data to different targets still match.
+    spec_dump.pop("destination", None)
     unit = {
-        "spec": spec.model_dump(mode="json"),
+        "spec": spec_dump,
         "deps": deps if deps is not None else pinned_deps(),
     }
     canonical = json.dumps(unit, sort_keys=True, separators=(",", ":"), ensure_ascii=False)

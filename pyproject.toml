@@ -106,4 +106,5 @@ forbidden_modules = [
     "tymi.io",
     "tymi.cli",
     "tymi.ui",
+    "tymi.provision",
 ]
